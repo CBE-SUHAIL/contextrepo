@@ -10,6 +10,7 @@ import {
   type ContextRepository,
   ContextType,
 } from './context.types';
+import { legacyContent } from './context-content';
 
 @Injectable()
 export class DemoContextRepository implements ContextRepository {
@@ -76,6 +77,8 @@ export class DemoContextRepository implements ContextRepository {
       id: data.id,
       title: data.title,
       type: type as ContextType,
+      schemaVersion: 1,
+      content: legacyContent(type as ContextType, data),
       projectId: String(data.projectId ?? 'contextops-demo'),
       status: data.status === 'approved' ? 'approved' : 'approved',
       updatedAt: String(data.updatedAt ?? ''),

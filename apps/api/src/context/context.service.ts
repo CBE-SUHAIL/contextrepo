@@ -45,6 +45,9 @@ export class ContextService {
       ...record.constraints,
       ...record.alternatives,
       ...record.sourceReferences,
+      ...Object.values(record.content ?? {}).flatMap((value) =>
+        Array.isArray(value) ? value : [value],
+      ),
     ]
       .join(' ')
       .toLocaleLowerCase();

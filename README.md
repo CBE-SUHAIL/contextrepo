@@ -13,9 +13,9 @@ See [the architecture](docs/architecture.md) and [the implementation plan](docs/
 
 ## Current progress
 
-Phase 1 architecture and project skeleton are complete. Phase 2A established the record model and dashboard using sample Markdown. Phase 2B.2 replaces the sample data with approved records read from the signed-in user's connected GitHub repository, while preserving search, filters, and record details.
+Phase 1 architecture and project skeleton are complete. Phase 2A established the record model and dashboard using sample Markdown. Phase 2B.2 replaces the sample data with approved records read from the signed-in user's connected GitHub repository, while preserving search, filters, and record details. The type-specific proposal workflow is implemented locally: each of the seven record types has its own fields, approval checks, GitHub YAML content, and MCP draft submission tool.
 
-GitHub sign-in, one-repository selection, persistent project settings, and context-folder setup are implemented. The library reads approved Markdown records from the connected repository's `context/` folder. Phase 3 adds human approval/rejection, commit-on-approval, conflict warnings, and MCP draft submission. Phase 4 adds MCP search over a pinned approved commit. Apply migrations `003_context_proposal_drafts.sql`, `004_proposal_review_mcp.sql`, and `005_active_context_release.sql` in Supabase; see [the proposal guide](docs/proposal-drafts.md) and [MCP setup](docs/mcp-proposals.md).
+GitHub sign-in, one-repository selection, persistent project settings, and context-folder setup are implemented. The library reads approved Markdown records from the connected repository's `context/` folder. Phase 3 provides human approval/rejection, commit-on-approval, conflict warnings, and MCP draft submission. Phase 4 adds MCP search over a pinned approved commit. Apply migration `006_typed_proposal_content.sql` in Supabase to use type-specific proposal content; see [the proposal guide](docs/proposal-drafts.md) and [MCP setup](docs/mcp-proposals.md).
 
 ## Start the development servers
 

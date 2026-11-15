@@ -101,6 +101,151 @@ function DetailGroup({
   );
 }
 
+const CONTENT_LABELS: Record<ContextType, Array<[string, string, boolean?]>> = {
+  decision: [
+    ["Problem and context", "problem"],
+    ["Decision drivers", "drivers", true],
+    ["Outcome", "outcome"],
+    ["Why this option", "rationale"],
+    ["Relevant constraints", "constraints", true],
+    ["Options and trade-offs", "alternatives", true],
+    ["Consequences", "consequences", true],
+    ["When to revisit", "revisitWhen"],
+  ],
+  requirement: [
+    ["Requirement", "statement"],
+    ["Why it is needed", "rationale"],
+    ["Source or originating need", "origin"],
+    ["How to verify it", "acceptanceCriteria", true],
+    ["Priority", "priority"],
+  ],
+  constraint: [
+    ["Constraint", "statement"],
+    ["Where it applies", "scope"],
+    ["Source", "source"],
+    ["Why it exists", "rationale"],
+    ["Impact", "impact"],
+    ["How to check it", "verificationCriteria", true],
+  ],
+  research: [
+    ["Research question", "question"],
+    ["Scope", "scope"],
+    ["Method", "method"],
+    ["Findings", "findings", true],
+    ["Confidence", "confidence"],
+    ["Limitations", "limitations", true],
+    ["Project implications", "implications", true],
+    ["Recommendation", "recommendation"],
+  ],
+  "rejected-approach": [
+    ["Rejected approach", "approach"],
+    ["Context", "context"],
+    ["Why it was rejected", "reasonRejected"],
+    ["Evidence or trade-offs", "evidence", true],
+    ["Chosen alternative", "chosenAlternative"],
+    ["When to reconsider", "reconsiderIf"],
+  ],
+  "open-question": [
+    ["Unresolved question", "question"],
+    ["Why it matters", "whyItMatters"],
+    ["Known facts", "knownFacts", true],
+    ["What remains unknown", "unknowns", true],
+    ["Options discussed", "optionsDiscussed", true],
+    ["Next step", "nextStep"],
+    ["Target date", "targetDate"],
+  ],
+  "project-state": [
+    ["As of", "asOf"],
+    ["Project health", "health"],
+    ["Current status", "summary"],
+    ["Completed", "completed", true],
+    ["In progress", "inProgress", true],
+    ["Blockers", "blockers", true],
+    ["Risks", "risks", true],
+    ["Next steps", "nextSteps", true],
+    ["Decisions needed", "decisionsNeeded", true],
+  ],
+};
+
+function typeName(type: ContextType) {
+  return typeMeta[type].label.toLocaleLowerCase();
+}
+
+function contextSections(
+  record: ContextRecord,
+): Array<[string, string | string[]]> {
+  const legacyContent: Record<string, string | string[]> = {};
+  if (!record.content) {
+    switch (record.type) {
+      case "decision":
+        Object.assign(legacyContent, {
+          problem: record.question,
+          outcome: record.summary,
+          rationale: record.rationale,
+          constraints: record.constraints,
+          alternatives: record.alternatives,
+        });
+        break;
+      case "requirement":
+        Object.assign(legacyContent, {
+          statement: record.summary || record.question,
+          rationale: record.rationale,
+        });
+        break;
+      case "constraint":
+        Object.assign(legacyContent, {
+          statement: record.summary || record.question,
+          rationale: record.rationale,
+          scope: record.discussionSummary,
+        });
+        break;
+      case "research":
+        Object.assign(legacyContent, {
+          question: record.question,
+          findings: record.summary ? [record.summary] : [],
+          method: record.discussionSummary,
+        });
+        break;
+      case "rejected-approach":
+        Object.assign(legacyContent, {
+          approach: record.summary,
+          context: record.question,
+          reasonRejected: record.rationale,
+        });
+        break;
+      case "open-question":
+        Object.assign(legacyContent, {
+          question: record.question,
+          whyItMatters: record.rationale,
+          knownFacts: record.summary ? [record.summary] : [],
+          optionsDiscussed: record.alternatives,
+        });
+        break;
+      case "project-state":
+        Object.assign(legacyContent, {
+          health: "unknown",
+          summary: record.summary,
+          blockers: record.constraints,
+          nextSteps: record.alternatives,
+        });
+        break;
+    }
+  }
+  const content = record.content ?? legacyContent;
+  const sections: Array<[string, string | string[]]> = [];
+  for (const [label, key] of CONTENT_LABELS[record.type]) {
+    const value = content[key];
+    if (Array.isArray(value)) {
+      const items = value.map((item) => item.trim()).filter(Boolean);
+      if (items.length) sections.push([label, items]);
+      continue;
+    }
+    const text = typeof value === "string" ? value.trim() : "";
+    if (text) sections.push([label, text]);
+  }
+  return sections;
+}
+
 export function ContextRecordTable({ records }: { records: ContextRecord[] }) {
   const [selected, setSelected] = useState<ContextRecord | null>(null);
 
@@ -199,44 +344,40 @@ export function ContextRecordTable({ records }: { records: ContextRecord[] }) {
                 {selected.title}
               </SheetTitle>
               <SheetDescription className="text-left">
-                Approved context · decision and reasoning
+                Approved context · {typeName(selected.type)}
               </SheetDescription>
             </SheetHeader>
             <div className="context-detail-scroll min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5">
-              <DetailGroup
-                title="Question"
-                className="rounded-xl border border-stone-200 bg-white p-4"
-              >
-                <p>{selected.question}</p>
-              </DetailGroup>
-              <DetailGroup
-                title="Outcome"
-                className="rounded-xl border border-violet-200/80 bg-violet-50/60 p-4"
-              >
-                <p className="font-medium text-stone-950">{selected.summary}</p>
-              </DetailGroup>
-              <DetailGroup title="Why the team chose it">
-                <p>{selected.rationale}</p>
-              </DetailGroup>
-              {selected.constraints.length > 0 && (
-                <DetailGroup title="Constraints">
-                  <ul className="list-disc space-y-1 pl-5">
-                    {selected.constraints.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
+              {contextSections(selected).map(([title, value]) => (
+                <DetailGroup
+                  key={title}
+                  title={title}
+                  className={
+                    title === "Outcome"
+                      ? "rounded-xl border border-violet-200/80 bg-violet-50/60 p-4"
+                      : undefined
+                  }
+                >
+                  {Array.isArray(value) ? (
+                    <ul className="list-disc space-y-1 pl-5">
+                      {value.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p
+                      className={
+                        title === "Outcome"
+                          ? "font-medium text-stone-950"
+                          : undefined
+                      }
+                    >
+                      {value}
+                    </p>
+                  )}
                 </DetailGroup>
-              )}
-              {selected.alternatives.length > 0 && (
-                <DetailGroup title="Alternatives discussed">
-                  <ul className="list-disc space-y-1 pl-5">
-                    {selected.alternatives.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                </DetailGroup>
-              )}
-              {selected.discussionSummary && (
+              ))}
+              {selected.schemaVersion !== 2 && selected.discussionSummary && (
                 <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">
                     Discussion trail

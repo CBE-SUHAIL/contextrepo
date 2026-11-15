@@ -36,6 +36,7 @@ type Draft = {
   title: string;
   type: ContextType;
   status: "draft" | "approved" | "rejected";
+  content: Record<string, string | string[]>;
   question: string;
   summary: string;
   rationale: string;
@@ -51,36 +52,345 @@ type Draft = {
   publishedCommitSha?: string | null;
 };
 
-type DraftForm = Omit<
-  Draft,
-  | "id"
-  | "projectId"
-  | "status"
-  | "owner"
-  | "createdAt"
-  | "updatedAt"
-  | "tags"
-  | "constraints"
-  | "alternatives"
-  | "sourceReferences"
-> & {
+type DraftForm = {
+  title: string;
+  type: ContextType;
+  content: Record<string, string>;
   tags: string;
-  constraints: string;
-  alternatives: string;
   sourceReferences: string;
+};
+
+type ProposalField = {
+  key: string;
+  label: string;
+  placeholder: string;
+  list?: boolean;
+  rows?: number;
+  requiredForApproval?: boolean;
+};
+
+const TYPE_FIELDS: Record<ContextType, ProposalField[]> = {
+  decision: [
+    {
+      key: "problem",
+      label: "Problem and context",
+      placeholder: "What needed a team decision?",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "drivers",
+      label: "Decision drivers",
+      placeholder: "Factors the team used to compare options",
+      list: true,
+    },
+    {
+      key: "outcome",
+      label: "Chosen outcome",
+      placeholder: "What did the team actually choose?",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "rationale",
+      label: "Why this option",
+      placeholder: "Why did the team choose it?",
+      rows: 3,
+      requiredForApproval: true,
+    },
+    {
+      key: "constraints",
+      label: "Relevant constraints",
+      placeholder: "Limits that affected the decision",
+      list: true,
+    },
+    {
+      key: "alternatives",
+      label: "Options and trade-offs",
+      placeholder: "Options actually considered, with pros and cons",
+      list: true,
+    },
+    {
+      key: "consequences",
+      label: "Consequences",
+      placeholder: "Expected benefits and costs",
+      list: true,
+    },
+    {
+      key: "revisitWhen",
+      label: "When to revisit",
+      placeholder: "What change would make the team reconsider?",
+      rows: 2,
+    },
+  ],
+  requirement: [
+    {
+      key: "statement",
+      label: "Requirement",
+      placeholder: "The system must…",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "rationale",
+      label: "Why it is needed",
+      placeholder: "What need does this address?",
+      rows: 2,
+    },
+    {
+      key: "origin",
+      label: "Source or originating need",
+      placeholder: "Stakeholder request, decision, or source",
+      rows: 2,
+    },
+    {
+      key: "acceptanceCriteria",
+      label: "How to verify it",
+      placeholder: "One observable check per line",
+      list: true,
+      requiredForApproval: true,
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      placeholder: "Only if the team set one",
+    },
+  ],
+  constraint: [
+    {
+      key: "statement",
+      label: "Constraint",
+      placeholder: "The project must… / must not…",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "scope",
+      label: "Where it applies",
+      placeholder: "Which part or situation is affected?",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "source",
+      label: "Source",
+      placeholder: "Who or what imposed this boundary?",
+    },
+    {
+      key: "rationale",
+      label: "Why it exists",
+      placeholder: "Reason, if known",
+      rows: 2,
+    },
+    {
+      key: "impact",
+      label: "Impact",
+      placeholder: "What does it limit or affect?",
+      rows: 2,
+    },
+    {
+      key: "verificationCriteria",
+      label: "How to check it",
+      placeholder: "One check per line",
+      list: true,
+    },
+  ],
+  research: [
+    {
+      key: "question",
+      label: "Research question",
+      placeholder: "What did the research try to answer?",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "scope",
+      label: "Scope",
+      placeholder: "What was included or excluded?",
+      rows: 2,
+    },
+    {
+      key: "method",
+      label: "Method",
+      placeholder: "How was information gathered or compared?",
+      rows: 2,
+    },
+    {
+      key: "findings",
+      label: "Findings",
+      placeholder: "Evidence-backed findings, one per line",
+      list: true,
+      requiredForApproval: true,
+    },
+    {
+      key: "confidence",
+      label: "Confidence",
+      placeholder: "How strong is the evidence?",
+      rows: 2,
+    },
+    {
+      key: "limitations",
+      label: "Limitations",
+      placeholder: "Evidence gaps, one per line",
+      list: true,
+    },
+    {
+      key: "implications",
+      label: "Project implications",
+      placeholder: "What might the findings mean?",
+      list: true,
+    },
+    {
+      key: "recommendation",
+      label: "Recommendation (optional)",
+      placeholder: "Advice only; not a team decision",
+      rows: 2,
+    },
+  ],
+  "rejected-approach": [
+    {
+      key: "approach",
+      label: "Rejected approach",
+      placeholder: "What approach did the team reject?",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "context",
+      label: "Context",
+      placeholder: "What problem was it meant to solve?",
+      rows: 2,
+    },
+    {
+      key: "reasonRejected",
+      label: "Why it was rejected",
+      placeholder: "Use the team's stated reason",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "evidence",
+      label: "Evidence or trade-offs",
+      placeholder: "One item per line",
+      list: true,
+    },
+    {
+      key: "chosenAlternative",
+      label: "What was chosen instead",
+      placeholder: "Only if the team identified one",
+      rows: 2,
+    },
+    {
+      key: "reconsiderIf",
+      label: "When to reconsider",
+      placeholder: "A condition for reviewing this again",
+      rows: 2,
+    },
+  ],
+  "open-question": [
+    {
+      key: "question",
+      label: "Unresolved question",
+      placeholder: "What is still unknown?",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "whyItMatters",
+      label: "Why it matters",
+      placeholder: "Why does the team need an answer?",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "knownFacts",
+      label: "Known facts",
+      placeholder: "Facts supported by the discussion or sources",
+      list: true,
+    },
+    {
+      key: "unknowns",
+      label: "What is still unknown",
+      placeholder: "One missing piece per line",
+      list: true,
+    },
+    {
+      key: "optionsDiscussed",
+      label: "Options actually discussed",
+      placeholder: "Leave empty if none were recorded",
+      list: true,
+    },
+    {
+      key: "nextStep",
+      label: "Next step",
+      placeholder: "Agreed next action, if any",
+      rows: 2,
+    },
+    {
+      key: "targetDate",
+      label: "Target date",
+      placeholder: "Only if one was agreed",
+    },
+  ],
+  "project-state": [
+    {
+      key: "health",
+      label: "Project health",
+      placeholder: "On track, at risk, blocked, or complete",
+      requiredForApproval: true,
+    },
+    {
+      key: "summary",
+      label: "Current status",
+      placeholder: "Brief, factual summary",
+      rows: 2,
+      requiredForApproval: true,
+    },
+    {
+      key: "completed",
+      label: "Completed",
+      placeholder: "One completed item per line",
+      list: true,
+    },
+    {
+      key: "inProgress",
+      label: "In progress",
+      placeholder: "One current item per line",
+      list: true,
+    },
+    {
+      key: "blockers",
+      label: "Blockers",
+      placeholder: "One blocker per line",
+      list: true,
+    },
+    {
+      key: "risks",
+      label: "Risks",
+      placeholder: "One known risk per line",
+      list: true,
+    },
+    {
+      key: "nextSteps",
+      label: "Next steps",
+      placeholder: "Agreed next actions, one per line",
+      list: true,
+    },
+    {
+      key: "decisionsNeeded",
+      label: "Decisions needed",
+      placeholder: "One pending decision per line",
+      list: true,
+    },
+  ],
 };
 
 function emptyForm(): DraftForm {
   return {
     title: "",
     type: "decision",
-    question: "",
-    summary: "",
-    rationale: "",
+    content: {},
     tags: "",
-    constraints: "",
-    alternatives: "",
-    discussionSummary: "",
     sourceReferences: "",
   };
 }
@@ -89,15 +399,28 @@ function formFromDraft(draft: Draft): DraftForm {
   return {
     title: draft.title,
     type: draft.type,
-    question: draft.question,
-    summary: draft.summary,
-    rationale: draft.rationale,
+    content: Object.fromEntries(
+      Object.entries(draft.content ?? {}).map(([key, value]) => [
+        key,
+        Array.isArray(value) ? value.join("\n") : value,
+      ]),
+    ),
     tags: draft.tags.join("\n"),
-    constraints: draft.constraints.join("\n"),
-    alternatives: draft.alternatives.join("\n"),
-    discussionSummary: draft.discussionSummary,
     sourceReferences: draft.sourceReferences.join("\n"),
   };
+}
+
+function contentForApi(type: ContextType, form: DraftForm) {
+  return Object.fromEntries(
+    TYPE_FIELDS[type]
+      .map(({ key, list }) => {
+        const value = form.content[key] ?? "";
+        return [key, list ? lines(value) : value.trim()] as const;
+      })
+      .filter(([, value]) =>
+        Array.isArray(value) ? value.length > 0 : value.length > 0,
+      ),
+  );
 }
 
 function lines(value: string) {
@@ -212,10 +535,10 @@ export function ProposalDrafts() {
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            ...form,
+            title: form.title,
+            type: form.type,
+            content: contentForApi(form.type, form),
             tags: lines(form.tags),
-            constraints: lines(form.constraints),
-            alternatives: lines(form.alternatives),
             sourceReferences: lines(form.sourceReferences),
           }),
         },
@@ -544,8 +867,8 @@ export function ProposalDrafts() {
                       : "New draft"}
                   </h3>
                   <p className="mt-1 text-xs leading-5 text-stone-500">
-                    Capture the outcome and enough reasoning for a teammate to
-                    understand it later.
+                    Capture the information that fits this type. Leave unknown
+                    details empty; a draft can be completed during review.
                   </p>
                 </div>
                 <Button
@@ -600,63 +923,49 @@ export function ProposalDrafts() {
                   </Field>
                 </div>
 
-                <Field label="Question or problem">
-                  <TextArea
-                    value={form.question}
-                    onChange={(value) => updateField("question", value)}
-                    placeholder="What did the team need to decide or understand?"
-                    rows={2}
-                  />
-                </Field>
-                <Field label="Outcome or summary">
-                  <TextArea
-                    value={form.summary}
-                    onChange={(value) => updateField("summary", value)}
-                    placeholder="What is the proposed answer or current conclusion?"
-                    rows={2}
-                  />
-                </Field>
-                <Field label="Why?">
-                  <TextArea
-                    value={form.rationale}
-                    onChange={(value) => updateField("rationale", value)}
-                    placeholder="What reasons led to this outcome?"
-                    rows={3}
-                  />
-                </Field>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Constraints" hint="One item per line">
-                    <TextArea
-                      value={form.constraints}
-                      onChange={(value) => updateField("constraints", value)}
-                      placeholder="Limits or requirements to keep in mind"
-                      rows={3}
-                    />
-                  </Field>
-                  <Field
-                    label="Alternatives considered"
-                    hint="One item per line"
-                  >
-                    <TextArea
-                      value={form.alternatives}
-                      onChange={(value) => updateField("alternatives", value)}
-                      placeholder="Other options and tradeoffs"
-                      rows={3}
-                    />
-                  </Field>
+                <div className="space-y-4 rounded-xl border border-stone-200 bg-stone-50/60 p-4">
+                  <div>
+                    <h4 className="text-xs font-semibold text-stone-900">
+                      {TYPE_LABELS[form.type]} details
+                    </h4>
+                    <p className="mt-1 text-[11px] leading-4 text-stone-500">
+                      Fields marked “Needed before approval” can be left blank
+                      while you save a draft.
+                    </p>
+                  </div>
+                  {TYPE_FIELDS[form.type].map((field) => (
+                    <Field
+                      key={field.key}
+                      label={field.label}
+                      hint={
+                        field.requiredForApproval
+                          ? "Needed before approval"
+                          : field.list
+                            ? "One item per line"
+                            : undefined
+                      }
+                    >
+                      <TextArea
+                        value={form.content[field.key] ?? ""}
+                        onChange={(value) =>
+                          setForm((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    [field.key]: value,
+                                  },
+                                }
+                              : current,
+                          )
+                        }
+                        placeholder={field.placeholder}
+                        rows={field.rows ?? 2}
+                      />
+                    </Field>
+                  ))}
                 </div>
-
-                <Field label="Discussion notes">
-                  <TextArea
-                    value={form.discussionSummary}
-                    onChange={(value) =>
-                      updateField("discussionSummary", value)
-                    }
-                    placeholder="Useful context from the conversation"
-                    rows={3}
-                  />
-                </Field>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Tags" hint="One item per line">
@@ -667,7 +976,14 @@ export function ProposalDrafts() {
                       rows={2}
                     />
                   </Field>
-                  <Field label="Sources or references" hint="One item per line">
+                  <Field
+                    label="Sources or references"
+                    hint={
+                      form.type === "research"
+                        ? "Needed before approval · one per line"
+                        : "One item per line"
+                    }
+                  >
                     <TextArea
                       value={form.sourceReferences}
                       onChange={(value) =>

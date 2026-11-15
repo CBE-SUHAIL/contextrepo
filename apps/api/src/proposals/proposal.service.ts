@@ -9,17 +9,21 @@ import { GithubService } from '../github/github.service';
 import { CONTEXT_TYPES, type ContextType } from '../context/context.types';
 import matter from 'gray-matter';
 import { ContextService } from '../context/context.service';
+import {
+  contentSummary,
+  legacyContent,
+  legacyFields,
+  missingApprovalFields,
+  parseContent,
+  readContent,
+  type ContextContent,
+} from '../context/context-content';
 
 export type ProposalInput = {
   title: string;
   type: ContextType;
-  question: string;
-  summary: string;
-  rationale: string;
+  content: ContextContent;
   tags: string[];
-  constraints: string[];
-  alternatives: string[];
-  discussionSummary: string;
   sourceReferences: string[];
 };
 
@@ -46,21 +50,17 @@ export class ProposalService {
     const project = await this.project(userId);
     const input = this.parse(body);
     const row = await this.db.query<any>(
-      `INSERT INTO context_proposals (user_id,project_id,title,type,question,summary,rationale,tags,constraints,alternatives,discussion_summary,source_references)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *, $13::text AS owner`,
+      `INSERT INTO context_proposals (user_id,project_id,title,type,content,tags,source_references,question,summary,rationale,constraints,alternatives,discussion_summary)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *, $14::text AS owner`,
       [
         userId,
         project.id,
         input.title,
         input.type,
-        input.question,
-        input.summary,
-        input.rationale,
+        JSON.stringify(input.content),
         input.tags,
-        input.constraints,
-        input.alternatives,
-        input.discussionSummary,
         input.sourceReferences,
+        ...this.legacy(input),
         owner,
       ],
     );
@@ -70,19 +70,15 @@ export class ProposalService {
   async update(userId: string, id: string, body: unknown) {
     const input = this.parse(body);
     const result = await this.db.query<any>(
-      `UPDATE context_proposals SET title=$1,type=$2,question=$3,summary=$4,rationale=$5,tags=$6,constraints=$7,alternatives=$8,discussion_summary=$9,source_references=$10,updated_at=NOW()
-       WHERE id=$11 AND user_id=$12 AND status='draft' RETURNING *, (SELECT github_login FROM app_users WHERE id=user_id) AS owner`,
+      `UPDATE context_proposals SET title=$1,type=$2,content=$3::jsonb,tags=$4,source_references=$5,question=$6,summary=$7,rationale=$8,constraints=$9,alternatives=$10,discussion_summary=$11,updated_at=NOW()
+       WHERE id=$12 AND user_id=$13 AND status='draft' RETURNING *, (SELECT github_login FROM app_users WHERE id=user_id) AS owner`,
       [
         input.title,
         input.type,
-        input.question,
-        input.summary,
-        input.rationale,
+        JSON.stringify(input.content),
         input.tags,
-        input.constraints,
-        input.alternatives,
-        input.discussionSummary,
         input.sourceReferences,
+        ...this.legacy(input),
         id,
         userId,
       ],
@@ -112,29 +108,35 @@ export class ProposalService {
       );
       return this.client(out.rows[0]);
     }
-    const missing = ['question', 'summary', 'rationale'].filter(
-      (key) => !String(p[key] ?? '').trim(),
+    let content = this.rowContent(p);
+    const type = p.type as ContextType;
+    const missing = missingApprovalFields(
+      type,
+      content,
+      p.source_references ?? [],
     );
     if (missing.length)
       throw new BadRequestException(
-        `Complete these fields before approval: ${missing.join(', ')}.`,
+        `Complete these ${p.type} fields before approval: ${missing.join(', ')}.`,
       );
     const project = await this.project(userId);
+    if (type === 'project-state' && !content.asOf) {
+      content = { ...content, asOf: new Date().toISOString().slice(0, 10) };
+    }
+    const legacy = legacyFields(type, content);
     const published = await this.github.publishContextRecord(userId, {
+      schemaVersion: 2,
       id: p.id,
       projectId: project.id,
       title: p.title,
       type: p.type,
       status: 'approved',
+      reviewStatus: 'approved',
       updatedAt: new Date().toISOString().slice(0, 10),
       owner: p.owner,
-      question: p.question,
-      summary: p.summary,
-      rationale: p.rationale,
+      content,
+      ...legacy,
       tags: p.tags ?? [],
-      constraints: p.constraints ?? [],
-      alternatives: p.alternatives ?? [],
-      discussionSummary: p.discussion_summary,
       sourceReferences: p.source_references ?? [],
     });
     await this.db.query(
@@ -154,12 +156,17 @@ export class ProposalService {
 
   async conflicts(userId: string, id: string) {
     const result = await this.db.query<any>(
-      `SELECT id,title,question,summary FROM context_proposals WHERE id=$1 AND user_id=$2 AND status='draft'`,
+      `SELECT id,title,type,content,question,summary,rationale,constraints,alternatives,discussion_summary,source_references FROM context_proposals WHERE id=$1 AND user_id=$2 AND status='draft'`,
       [id, userId],
     );
     if (!result.rowCount)
       throw new NotFoundException('That draft was not found.');
     const candidate = result.rows[0];
+    const candidateContent = this.rowContent(candidate);
+    const candidateLegacy = legacyFields(
+      candidate.type as ContextType,
+      candidateContent,
+    );
     const key = (value: string) =>
       value
         .toLocaleLowerCase()
@@ -178,11 +185,20 @@ export class ProposalService {
         if (data.status !== 'approved') continue;
         const title = String(data.title ?? '');
         const question = String(data.question ?? data.problem ?? '');
-        const summary = String(data.summary ?? data.outcome ?? '');
+        const type = String(data.type ?? '') as ContextType;
+        const contextContent =
+          type && CONTEXT_TYPES.includes(type)
+            ? readContent(type, data.content)
+            : ({} as ContextContent);
+        const summary =
+          Object.keys(contextContent).length > 0
+            ? contentSummary(type, contextContent)
+            : String(data.summary ?? data.outcome ?? '');
         const sameTopic =
           (key(title) !== '' && key(title) === key(candidate.title)) ||
-          (key(question) !== '' && key(question) === key(candidate.question));
-        if (sameTopic && key(summary) !== key(candidate.summary))
+          (key(question) !== '' &&
+            key(question) === key(candidateLegacy.question));
+        if (sameTopic && key(summary) !== key(candidateLegacy.summary))
           matches.push({ path: file.path, title, summary });
       } catch {
         /* malformed repository records are already reported by the library reader */
@@ -308,33 +324,61 @@ export class ProposalService {
       throw new BadRequestException('Choose a valid context type.');
     const title = txt('title', 180);
     if (!title) throw new BadRequestException('Add a title.');
+    let content: ContextContent;
+    try {
+      content =
+        b.content === undefined
+          ? legacyContent(type as ContextType, b)
+          : parseContent(type as ContextType, b.content);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Check the proposal content.',
+      );
+    }
     return {
       title,
       type: type as ContextType,
-      question: txt('question', 5000),
-      summary: txt('summary', 5000),
-      rationale: txt('rationale', 10000),
+      content,
       tags: list('tags', 30, 80),
-      constraints: list('constraints', 50, 500),
-      alternatives: list('alternatives', 50, 500),
-      discussionSummary: txt('discussionSummary', 10000),
       sourceReferences: list('sourceReferences', 50, 1000),
     };
   }
+
+  private legacy(input: ProposalInput) {
+    const fields = legacyFields(input.type, input.content);
+    return [
+      fields.question,
+      fields.summary,
+      fields.rationale,
+      fields.constraints,
+      fields.alternatives,
+      fields.discussionSummary,
+    ];
+  }
+
+  private rowContent(row: Record<string, unknown>): ContextContent {
+    const type = row.type as ContextType;
+    const content = readContent(type, row.content);
+    return Object.keys(content).length > 0 ? content : legacyContent(type, row);
+  }
+
   private client(r: any) {
+    const content = this.rowContent(r);
+    const legacy = legacyFields(r.type as ContextType, content);
     return {
       id: r.id,
       projectId: r.project_id,
       title: r.title,
       type: r.type,
       status: r.status,
-      question: r.question,
-      summary: r.summary,
-      rationale: r.rationale,
+      content,
+      question: legacy.question,
+      summary: legacy.summary,
+      rationale: legacy.rationale,
       tags: r.tags ?? [],
-      constraints: r.constraints ?? [],
-      alternatives: r.alternatives ?? [],
-      discussionSummary: r.discussion_summary,
+      constraints: legacy.constraints,
+      alternatives: legacy.alternatives,
+      discussionSummary: legacy.discussionSummary,
       sourceReferences: r.source_references ?? [],
       owner: r.owner,
       createdAt: r.created_at,

@@ -1,22 +1,54 @@
 # Context record format
 
-ContextOps reads approved Markdown records from the `context/` folder in the connected GitHub repository. It reads the repository's default branch. You can organize records in subfolders; the folder structure does not determine the record type.
+ContextOps reads approved Markdown records from the `context/` folder in the connected GitHub repository's default branch. Subfolders are optional; the `type` field determines what a record means.
 
-## Add a record
+## Current format: type-specific records
 
-Create a `.md` file under `context/`, for example `context/decisions/database.md`:
+New records use `schemaVersion: 2`. Common details stay in YAML front matter. The `content` object contains only fields that make sense for the record's type.
+
+Example Open Question:
 
 ```markdown
 ---
+schemaVersion: 2
+id: database-choice-open
+title: Database choice remains open
+type: open-question
+reviewStatus: approved
+updatedAt: 2026-11-15
+owner: Project team
+tags:
+  - database
+sourceReferences:
+  - context/database.md
+content:
+  question: Which database should the team use?
+  whyItMatters: AI assistants need an approved answer before they can reliably use the team's database choice.
+  knownFacts:
+    - The approved PostgreSQL record is a test sample, not a team decision.
+  unknowns:
+    - The database the team will choose.
+  optionsDiscussed: []
+---
+```
+
+This is an example of the format only. It is not an approved WorkforceIntelligence decision. An empty list means no items were captured in that field; it does not claim that the team never discussed any.
+
+Required common fields are `id`, `title`, `type`, `reviewStatus`, and `updatedAt`. `reviewStatus` must be `approved` to appear in the library. Common optional fields are `owner`, `projectId`, `tags`, and `sourceReferences`.
+
+The required fields within `content` depend on `type`. For example, a Decision requires a problem, chosen outcome, and rationale; an Open Question requires a question and why it matters, but does not need an answer. See the [proposal type contract](proposal-type-contract.md) for all fields and approval requirements. Research records also need at least one source reference.
+
+## Older format: flat records
+
+ContextOps continues to read existing records that use the earlier format, without `schemaVersion: 2`:
+
+```yaml
 id: database-choice
 title: Use PostgreSQL for application data
 type: decision
 status: approved
 updatedAt: 2026-11-11
 owner: Project team
-tags:
-  - database
-  - architecture
 question: Which database should the application use?
 summary: Use PostgreSQL as the application's primary relational database.
 rationale: The project needs relational data, transactions, and a mature ecosystem.
@@ -24,36 +56,21 @@ constraints:
   - The database must support reliable transactions.
 alternatives:
   - MySQL
-discussionSummary: The team compared PostgreSQL and MySQL for the application's needs.
 sourceReferences:
   - docs/architecture.md
----
-
-Additional explanation can go here as normal Markdown.
 ```
 
-Commit or merge the file to the repository's default branch, then refresh ContextOps.
+Older records require `id`, `title`, `type`, `status: approved`, `updatedAt`, `question` (or `problem`), `summary` (or `outcome`), and `rationale`. Their common fields are adapted for display and search. New records should use the type-specific format above.
 
-## Required fields
+## Add or publish a record
 
-| Field       | Meaning                                                                                                               |
-| ----------- | --------------------------------------------------------------------------------------------------------------------- |
-| `id`        | Stable unique identifier for this record.                                                                             |
-| `title`     | Short human-readable name.                                                                                            |
-| `type`      | One of `decision`, `requirement`, `constraint`, `research`, `rejected-approach`, `open-question`, or `project-state`. |
-| `status`    | Must be `approved` to appear in the library. Records marked `draft` are ignored.                                      |
-| `updatedAt` | Date or timestamp, for example `2026-11-11`.                                                                          |
-| `question`  | Question or problem the team discussed. `problem` is also accepted.                                                   |
-| `summary`   | The answer, decision, or current conclusion. `outcome` is also accepted.                                              |
-| `rationale` | Why the team reached this conclusion.                                                                                 |
-
-Optional fields: `owner`, `projectId`, `tags`, `constraints`, `alternatives`, `discussionSummary`, and `sourceReferences`. The four list fields must be YAML lists of text. Snake-case aliases are accepted for `updated_at`, `project_id`, `discussion_summary`, and `source_references`.
+Create a `.md` file under `context/`, or create and approve a draft in ContextOps. ContextOps publishes approved drafts under `context/<type>/`. Commit or merge manual files to the repository's default branch, then refresh ContextOps.
 
 `README.md` is treated as folder guidance and is not shown as a record. Invalid records do not block other valid records; ContextOps displays a warning with the file path and issue. Duplicate IDs are reported and only the first valid file is shown.
 
-## Current limits
+## Limits
 
 - Only Markdown (`.md`) records are read.
 - Files must be smaller than 1 MB.
-- The reader currently reads the connected repository's default branch. Pull-request review and published immutable releases come in later phases.
-- Draft proposals created inside ContextOps are a separate Phase 2B.3 feature; until then, keep unapproved files marked `draft` so they stay out of the approved library.
+- The library reads the connected repository's default branch; MCP searches the project's active approved commit snapshot.
+- Draft proposals stay in Supabase and do not appear in the context library until a person approves them.

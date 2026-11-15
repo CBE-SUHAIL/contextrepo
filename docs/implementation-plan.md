@@ -63,7 +63,7 @@ This first slice uses `examples/demo-context/` fixtures so the cross-assistant c
 
 **Complete when:** The user can sign in, connect one repo, initialize `context/` when needed, browse and search its approved context, create/edit persisted drafts, and confirm drafts do not appear in the approved library. Organization onboarding, multiple teams, member invitations, and role-based project access are explicitly deferred to Phase 8.
 
-### Phase 3 — Add review and trust controls (implemented; Supabase migration and manual checks pending)
+### Phase 3 — Add review and trust controls (implemented; typed proposal update locally complete)
 
 - Let an AI submit a proposal through MCP as a draft; MCP must not approve or publish it.
 - Let a person review or edit drafts, approve them in ContextOps, or reject them with an optional review note.
@@ -72,10 +72,11 @@ This first slice uses `examples/demo-context/` fixtures so the cross-assistant c
 - Show draft, approved, and rejected items in the Proposals screen. MCP-created records appear in the same draft queue.
 - Warn reviewers when a draft appears to have the same title/question as an approved record but a different outcome. The reviewer makes the decision.
 - Provide a revocable, per-user MCP bearer key; store only its SHA-256 hash. The `submit_context_proposal` MCP tool creates drafts only. It cannot approve, reject, or publish.
+- Give all seven proposal types their own fields in the editor and MCP tools. Validate the right minimum fields when a person approves; publish typed YAML while continuing to read older records. Migration `006_typed_proposal_content.sql` adds structured draft content in Supabase.
 
 **Deliverable:** A safe proposal workflow where MCP can submit drafts, people approve in ContextOps, and only approved records are published to GitHub.
 
-**Complete when:** After applying migration `004_proposal_review_mcp.sql`, a human can approve a valid proposal and see it in GitHub and the Context library; rejected and draft records remain out of the approved library; an MCP client can submit a draft using a revocable key.
+**Complete when:** After applying migrations `004_proposal_review_mcp.sql` and `006_typed_proposal_content.sql`, a human can approve a valid typed proposal and see it in GitHub and the Context library; rejected and draft records remain out of the approved library; an MCP client can submit a type-appropriate draft using a revocable key. Existing installations also need migration `005_active_context_release.sql` for Phase 4.
 
 ### Phase 4 — Pin context versions and add MCP retrieval (implemented; migration and manual verification pending)
 

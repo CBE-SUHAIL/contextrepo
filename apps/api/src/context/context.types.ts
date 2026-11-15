@@ -14,6 +14,8 @@ export interface ContextRecord {
   id: string;
   title: string;
   type: ContextType;
+  schemaVersion?: number;
+  content?: Record<string, string | string[]>;
   projectId: string;
   status: 'approved';
   updatedAt: string;

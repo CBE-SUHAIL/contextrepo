@@ -3,9 +3,9 @@
 ContextOps exposes a Streamable HTTP MCP endpoint for creating proposal drafts and searching approved context.
 
 - Endpoint: `http://localhost:4000/api/mcp` for local development.
-- Tools: `submit_context_proposal` and `search_approved_context`.
+- Tools: `search_approved_context` plus one draft tool for each context type: `submit_decision`, `submit_requirement`, `submit_constraint`, `submit_research`, `submit_rejected_approach`, `submit_open_question`, and `submit_project_state`.
 - `search_approved_context` can filter by words and optional context type. It searches the active commit-pinned snapshot and returns its commit SHA and source file path.
-- The tool stores a draft in Supabase. It does not approve, reject, read, or publish context.
+- Each type-specific tool stores a draft in Supabase using fields designed for that kind of information. The older `submit_context_proposal` tool remains for compatibility. None of these tools can approve or publish context.
 - Search returns only validated `approved` Markdown records. Drafts and rejected proposals are omitted.
 - A person signs in to ContextOps, reviews the proposal on the Proposals page, then approves or rejects it.
 - Approval writes a Markdown file with YAML front matter to the selected repository and default branch.
@@ -21,8 +21,8 @@ The current guide includes Codex, Claude Code, Cursor, and generic MCP apps. Cha
 
 For other MCP apps, use the Streamable HTTP endpoint `http://localhost:4000/api/mcp` and the header `Authorization: Bearer <your ContextOps key>`. Do not paste the key into a public repository, shared prompt, or screenshot. This local endpoint works only while the ContextOps API is running on the same machine/network; remote AI services need a securely reachable HTTPS deployment.
 
-The tool accepts a title, one of the seven context types, question, summary, rationale, and optional tags, constraints, alternatives, discussion notes, and references. It returns the saved draft ID and confirms that human review is required.
+Each type-specific tool requires a title. Details may be omitted while drafting; ContextOps checks the selected type's required fields when a person tries to approve it. AI assistants should omit unknown details rather than invent them. It returns the saved draft ID and confirms that human review is required.
 
 ## Database
 
-Apply `apps/api/database/migrations/004_proposal_review_mcp.sql` after `003_context_proposal_drafts.sql`, then apply `apps/api/database/migrations/005_active_context_release.sql`. Migration 005 stores the active approved Git commit for each project. Do not put the raw MCP key in SQL or `.env`.
+For a new database, apply migrations `003_context_proposal_drafts.sql`, `004_proposal_review_mcp.sql`, `005_active_context_release.sql`, and `006_typed_proposal_content.sql` in order. Existing installations should apply migration `006_typed_proposal_content.sql`. Migration 005 stores the active approved Git commit for each project; migration 006 adds type-specific proposal content. Do not put the raw MCP key in SQL or `.env`.

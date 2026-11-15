@@ -8,6 +8,12 @@ import {
   type ContextRepository,
   type ContextType,
 } from './context.types';
+import {
+  legacyContent,
+  legacyFields,
+  missingApprovalFields,
+  readContent,
+} from './context-content';
 
 @Injectable()
 export class GithubContextRepository implements ContextRepository {
@@ -23,8 +29,9 @@ export class GithubContextRepository implements ContextRepository {
       try {
         const parsed = matter(file.content);
         const data = parsed.data as Record<string, unknown>;
-        if (data.status === 'draft') continue;
-        if (data.status !== 'approved') {
+        const reviewStatus = data.reviewStatus ?? data.status;
+        if (reviewStatus === 'draft') continue;
+        if (reviewStatus !== 'approved') {
           warnings.push(
             `${file.path}: status must be "approved" to appear in the library.`,
           );
@@ -69,9 +76,6 @@ export class GithubContextRepository implements ContextRepository {
     const title = this.requiredString(data.title);
     const id = this.requiredString(data.id);
     const type = this.requiredString(data.type);
-    const question = this.requiredString(data.question ?? data.problem);
-    const summary = this.requiredString(data.summary ?? data.outcome);
-    const rationale = this.requiredString(data.rationale);
     const updatedAt = this.dateString(data.updatedAt ?? data.updated_at);
 
     if (!id) return 'missing required field "id".';
@@ -79,10 +83,31 @@ export class GithubContextRepository implements ContextRepository {
     if (!type || !CONTEXT_TYPES.includes(type as ContextType)) {
       return `"type" must be one of: ${CONTEXT_TYPES.join(', ')}.`;
     }
-    if (!question) return 'missing required field "question".';
-    if (!summary) return 'missing required field "summary" (or "outcome").';
-    if (!rationale) return 'missing required field "rationale".';
     if (!updatedAt) return 'missing or invalid "updatedAt" date.';
+
+    const recordType = type as ContextType;
+    const isTypedRecord = Number(data.schemaVersion) >= 2;
+    const content = isTypedRecord
+      ? readContent(recordType, data.content)
+      : legacyContent(recordType, data);
+    if (isTypedRecord) {
+      const missing = missingApprovalFields(
+        recordType,
+        content,
+        this.stringArray(data.sourceReferences ?? data.source_references) ?? [],
+      );
+      if (missing.length) {
+        return `missing required ${recordType} content: ${missing.join(', ')}.`;
+      }
+    } else {
+      if (!this.requiredString(data.question ?? data.problem))
+        return 'missing required field "question".';
+      if (!this.requiredString(data.summary ?? data.outcome))
+        return 'missing required field "summary" (or "outcome").';
+      if (!this.requiredString(data.rationale))
+        return 'missing required field "rationale".';
+    }
+    const legacy = legacyFields(recordType, content);
 
     const tags = this.stringArray(data.tags);
     const constraints = this.stringArray(data.constraints);
@@ -116,18 +141,20 @@ export class GithubContextRepository implements ContextRepository {
     return {
       id,
       title,
-      type: type as ContextType,
+      type: recordType,
+      schemaVersion: isTypedRecord ? 2 : 1,
+      content,
       projectId: recordProjectId || projectId,
       status: 'approved',
       updatedAt,
       owner: owner || 'Project team',
       tags: tags ?? [],
-      question,
-      summary,
-      rationale,
-      constraints: constraints ?? [],
-      alternatives: alternatives ?? [],
-      discussionSummary: discussionSummary ?? '',
+      question: legacy.question,
+      summary: legacy.summary,
+      rationale: legacy.rationale,
+      constraints: legacy.constraints,
+      alternatives: legacy.alternatives,
+      discussionSummary: legacy.discussionSummary,
       sourceReferences: sourceReferences ?? [],
     };
   }

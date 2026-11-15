@@ -1,6 +1,6 @@
 # Proposal type contract
 
-**Status:** Phase 1 design for type-specific proposals  
+**Status:** Implemented locally; Supabase migration and manual verification pending
 **Purpose:** Give teammates and AI assistants a clear structure for each kind of project knowledge.
 
 ## Core rule
@@ -20,19 +20,19 @@ Keep review state separate from the meaning of the record:
 - An approved Open Question remains open until the team resolves it.
 - Project health (such as **on track** or **at risk**) is a project-state value, not a review state.
 
-**Target draft behavior:** a draft can be saved with only a title and type. Before approval, the reviewer checks that the type-specific required information is present. This differs from the current MCP tool, which still requires the same question, summary, and rationale fields for every type; a later implementation phase will align it with this contract.
+**Draft behavior:** drafts can be saved with only a title and type. Before approval, ContextOps checks the required information for that type. MCP offers one type-specific submission tool per record type; the older `submit_context_proposal` remains available for existing clients and is mapped into the new structure.
 
 ## Type-specific fields
 
-| Type                  | Fields to capture                                                                                                                                         | Minimum information before approval                                                                                                                         |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Decision**          | Problem/context; decision drivers; outcome; rationale; considered options and trade-offs; consequences; revisit condition, if useful                      | The problem, the actual chosen outcome, and why it was chosen. If no outcome was chosen, use **Open question**.                                             |
-| **Requirement**       | One requirement statement; rationale; source or originating need, if known; acceptance/verification criteria; owner or priority, if known                 | A clear, testable statement and a way to check whether it is met. NASA guidance supports recording rationale, source traceability, and verification method. |
-| **Constraint**        | The boundary (“must” / “must not”); scope; source or who imposed it; rationale; impact; how compliance is checked, if applicable                          | A specific boundary and what part of the project it applies to. Do not turn a preference into a constraint.                                                 |
-| **Research**          | Research question; scope; method or how information was gathered; findings with sources/evidence; confidence; limitations; implications or recommendation | A question, evidence-backed findings, and their sources. Label a recommendation as a recommendation, not a team decision.                                   |
-| **Rejected approach** | Approach considered; reason it was rejected; evidence or trade-off; chosen alternative, if known; condition for reconsideration, if useful                | The approach and the team's recorded reason for rejecting it. Do not infer the chosen alternative.                                                          |
-| **Open question**     | Unresolved question; why it matters; known facts; missing information; options actually discussed; possible next step / owner / target date, if known     | The unresolved question and its relevance. An answer is not required.                                                                                       |
-| **Project state**     | As-of time; overall health; short summary; completed work; current work; blockers/risks; next steps; decisions needed                                     | The update date, current health, and a concise factual status. Treat it as time-sensitive; a later update may replace it.                                   |
+| Type                  | Type-specific content fields                                                                                                               | Minimum information before approval                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Decision**          | `problem`, `drivers[]`, `outcome`, `rationale`, `constraints[]`, `alternatives[]`, `consequences[]`, `revisitWhen`                         | The problem, the actual chosen outcome, and why it was chosen. If no outcome was chosen, use **Open question**.                                             |
+| **Requirement**       | `statement`, `rationale`, `origin`, `acceptanceCriteria[]`, `priority`                                                                     | A clear, testable statement and a way to check whether it is met. NASA guidance supports recording rationale, source traceability, and verification method. |
+| **Constraint**        | `statement`, `scope`, `source`, `rationale`, `impact`, `verificationCriteria[]`                                                            | A specific boundary and what part of the project it applies to. Do not turn a preference into a constraint.                                                 |
+| **Research**          | `question`, `scope`, `method`, `findings[]`, `confidence`, `limitations[]`, `implications[]`, `recommendation`                             | A question, evidence-backed findings, and their sources. Label a recommendation as a recommendation, not a team decision.                                   |
+| **Rejected approach** | `approach`, `context`, `reasonRejected`, `evidence[]`, `chosenAlternative`, `reconsiderIf`                                                 | The approach and the team's recorded reason for rejecting it. Do not infer the chosen alternative.                                                          |
+| **Open question**     | `question`, `whyItMatters`, `knownFacts[]`, `unknowns[]`, `optionsDiscussed[]`, `nextStep`, `targetDate`                                   | The unresolved question and its relevance. An answer is not required.                                                                                       |
+| **Project state**     | `asOf` (system generated), `health`, `summary`, `completed[]`, `inProgress[]`, `blockers[]`, `risks[]`, `nextSteps[]`, `decisionsNeeded[]` | The update date, current health, and a concise factual status. Treat it as time-sensitive; a later update may replace it.                                   |
 
 For every type, include source references when available. Do not require alternatives or discussion notes where they do not apply. Use one record for one main item of knowledge; link related records instead of combining unrelated facts.
 
@@ -55,23 +55,23 @@ content:
   unknowns:
     - The database the team will choose.
   alternativesConsidered: []
-  sourceReferences:
-    - context/database.md
+sourceReferences:
+  - context/database.md
 ```
 
 The empty alternatives list records only that this draft has no alternatives to include. It does not claim that the team never discussed any. A Decision record would be inappropriate until there is a real outcome to record.
 
-## Phase 1 review checklist
+## Implementation checklist
 
-- [ ] Each type has a distinct purpose and its own fields.
-- [ ] Every type can be saved as a draft without making up missing facts.
-- [ ] Each type has a clear minimum for human approval.
-- [ ] Approval state is distinct from the facts or status described by a record.
-- [ ] The database example is an Open Question and does not claim PostgreSQL or another database was selected.
+- [x] Each type has a distinct purpose and its own fields.
+- [x] Every type can be saved as a draft without making up missing facts.
+- [x] Each type has a clear minimum for human approval.
+- [x] Approval state is distinct from the facts or status described by a record.
+- [x] The database example is an Open Question and does not claim PostgreSQL or another database was selected.
 
 ## Implementation note
 
-This is the content contract, not a database migration or final UI design. The next phase should choose a backward-compatible Supabase and GitHub Markdown/YAML representation for these fields, then update validation and readers to support existing records.
+The web draft editor, API validation and approval checks, MCP submission tools, and GitHub YAML reader/writer now use this contract. Migration `006_typed_proposal_content.sql` adds a JSONB content column while retaining the legacy columns for compatibility. Apply it in Supabase before using the updated proposal flow. Older approved GitHub records continue to load through the legacy reader; newly approved records use `schemaVersion: 2` with type-specific `content`.
 
 ## References
 
