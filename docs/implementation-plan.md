@@ -14,7 +14,7 @@ Build the ContextOps product first. Use DevOps tools to deliver and run that pro
 
 - Connect a ContextOps project to a GitHub context repository.
 - Store and browse seven record types: Decision, Requirement, Constraint, Research, Rejected Approach, Open Question, and Project State.
-- Preserve each context item's reasoning trail: the question, final outcome, rationale, constraints, alternatives/tradeoffs, and selected discussion notes or source references.
+- Preserve each context item's useful evidence and reasoning using fields that fit its type; a resolved Decision and an unresolved Open Question must not be forced into the same shape.
 - Search and filter records.
 - Propose changes through ContextOps, validate them, and require human review in ContextOps before publishing to GitHub.
 - Publish approved context as a versioned release.
@@ -33,12 +33,12 @@ Build the ContextOps product first. Use DevOps tools to deliver and run that pro
 ### Phase 1 — Define the knowledge model and user flow
 
 - Confirm what each of the seven record types means and which fields are required.
-- Define shared fields that preserve reasoning: the problem/question, outcome, rationale, constraints, alternatives and tradeoffs, and selected discussion excerpts or source references.
+- Define shared metadata separately from type-specific content fields; do not require a question, outcome, rationale, constraints, or alternatives from every record type.
 - Decide how records are organized in Markdown with YAML front matter.
 - Define the user flow: create project → connect repository → browse context → propose change → review → publish → retrieve through MCP.
 - Draw the basic architecture and agree on what belongs in the app versus the context repository.
 
-**Deliverable:** A small design document, sample records, and a clear folder/schema proposal.
+**Deliverable:** A small design document, sample records, and a clear folder/schema proposal. The [proposal type contract](proposal-type-contract.md) defines the seven type-specific content shapes.
 
 **Complete when:** A reviewer can understand how a piece of knowledge moves from draft to approved release.
 
@@ -67,7 +67,7 @@ This first slice uses `examples/demo-context/` fixtures so the cross-assistant c
 
 - Let an AI submit a proposal through MCP as a draft; MCP must not approve or publish it.
 - Let a person review or edit drafts, approve them in ContextOps, or reject them with an optional review note.
-- Require title, context type, question, outcome, and rationale before approval.
+- Require the fields appropriate to the selected context type before approval; a valid Open Question does not need an outcome, and a Decision does.
 - After approval in ContextOps, write a Markdown record with YAML front matter under `context/<type>/` on the connected repository's default branch. This MVP uses a GitHub Contents API commit; each approval becomes a Git commit and the app records its path and commit SHA.
 - Show draft, approved, and rejected items in the Proposals screen. MCP-created records appear in the same draft queue.
 - Warn reviewers when a draft appears to have the same title/question as an approved record but a different outcome. The reviewer makes the decision.

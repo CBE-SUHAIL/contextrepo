@@ -21,7 +21,11 @@ Do not rerun migrations `001` or `002`. Migration `003` creates the proposal tab
 4. Approval validates required information and writes a Markdown record under `context/<type>/` on the connected GitHub repository's default branch. The page displays the result and GitHub commit path.
 5. Open **Settings**, create an MCP access key, and follow [`mcp-proposals.md`](mcp-proposals.md) to connect an MCP client. The key is shown only once.
 
-## Use the form
+## Proposal types
+
+The current MVP form uses the same fields for all seven proposal types. The next proposal improvement is to show type-specific fields so a decision, requirement, research note, open question, and project update each capture the information they need. See the [proposal type contract](proposal-type-contract.md) for the proposed field definitions and example. Drafts remain separate from approved context until a person approves them.
+
+## Use the current form
 
 1. Open **Proposals** in ContextOps and choose **New draft**.
 2. Enter a title and choose one of the seven context types.
