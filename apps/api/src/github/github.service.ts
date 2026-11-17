@@ -701,6 +701,57 @@ export class GithubService {
       );
   }
 
+  async listContextCommits(userId: string) {
+    const projectResult = await this.db.query<{
+      repository_id: string;
+      owner: string;
+      name: string;
+      default_branch: string;
+    }>(
+      `SELECT repository_id,owner,name,default_branch FROM connected_projects WHERE user_id=$1 LIMIT 1`,
+      [userId],
+    );
+    if (!projectResult.rowCount)
+      throw new NotFoundException('Connect a project before viewing releases.');
+    const project = projectResult.rows[0];
+    const access = await this.selectedInstallation(
+      userId,
+      Number(project.repository_id),
+    );
+    const url = new URL(
+      `https://api.github.com/repos/${encodeURIComponent(project.owner)}/${encodeURIComponent(project.name)}/commits`,
+    );
+    url.searchParams.set('path', 'context');
+    url.searchParams.set('sha', project.default_branch);
+    url.searchParams.set('per_page', '50');
+    const response = await fetch(url, {
+      headers: this.githubHeaders(access.token),
+    });
+    if (!response.ok)
+      throw new BadGatewayException(
+        'GitHub could not load the context release history. Try again.',
+      );
+    const commits = (await response.json()) as Array<{
+      sha: string;
+      html_url: string;
+      commit: {
+        message: string;
+        author?: { name?: string; date?: string };
+      };
+    }>;
+    return {
+      repository: `${project.owner}/${project.name}`,
+      branch: project.default_branch,
+      items: commits.map((commit) => ({
+        sha: commit.sha,
+        url: commit.html_url,
+        message: commit.commit.message.split('\n')[0],
+        author: commit.commit.author?.name ?? 'GitHub contributor',
+        createdAt: commit.commit.author?.date ?? '',
+      })),
+    };
+  }
+
   async publishContextRecord(userId: string, record: Record<string, unknown>) {
     const projectResult = await this.db.query<{
       repository_id: string;

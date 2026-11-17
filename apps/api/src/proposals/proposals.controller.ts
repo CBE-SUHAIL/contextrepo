@@ -31,6 +31,19 @@ export class ProposalsController {
       status === 'all' ? ['draft', 'approved', 'rejected'] : [status],
     );
   }
+  @Get('releases') async releases(@Req() req: Request) {
+    const user = await this.user(req);
+    return this.proposals.releaseHistory(user.id);
+  }
+  @Post('releases/:sha/rollback') async rollback(
+    @Req() req: Request,
+    @Param('sha') sha: string,
+    @Headers('origin') origin?: string,
+  ) {
+    this.origin(origin);
+    const user = await this.user(req);
+    return this.proposals.rollbackRelease(user.id, sha);
+  }
   @Post() async create(
     @Req() req: Request,
     @Body() body: unknown,

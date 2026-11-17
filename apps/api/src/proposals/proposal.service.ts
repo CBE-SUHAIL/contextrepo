@@ -207,6 +207,94 @@ export class ProposalService {
     return { matches };
   }
 
+  async releaseHistory(userId: string) {
+    const project = await this.project(userId);
+    const active = await this.db.query<{
+      github_commit_sha: string;
+      branch: string;
+    }>(
+      `SELECT github_commit_sha,branch FROM active_context_releases WHERE project_id=$1`,
+      [project.id],
+    );
+    const history = await this.github.listContextCommits(userId);
+    const rollbacks = await this.db.query<{
+      from_commit_sha: string;
+      to_commit_sha: string;
+      branch: string;
+      created_at: string;
+      actor: string;
+    }>(
+      `SELECT r.from_commit_sha,r.to_commit_sha,r.branch,r.created_at,u.github_login AS actor
+       FROM context_release_rollbacks r JOIN app_users u ON u.id=r.actor_user_id
+       WHERE r.project_id=$1 ORDER BY r.created_at DESC LIMIT 20`,
+      [project.id],
+    );
+    return {
+      ...history,
+      activeCommitSha: active.rows[0]?.github_commit_sha ?? null,
+      items: history.items.map((item) => ({
+        ...item,
+        isActive: item.sha === active.rows[0]?.github_commit_sha,
+      })),
+      rollbacks: rollbacks.rows.map((item) => ({
+        fromCommitSha: item.from_commit_sha,
+        toCommitSha: item.to_commit_sha,
+        branch: item.branch,
+        createdAt: item.created_at,
+        actor: item.actor,
+      })),
+    };
+  }
+
+  async rollbackRelease(userId: string, targetSha: string) {
+    if (!/^[a-f0-9]{40}$/i.test(targetSha)) {
+      throw new BadRequestException('Choose a valid GitHub commit.');
+    }
+    const project = await this.project(userId);
+    const history = await this.github.listContextCommits(userId);
+    const target = history.items.find(
+      (item) => item.sha.toLowerCase() === targetSha.toLowerCase(),
+    );
+    if (!target)
+      throw new BadRequestException(
+        'That commit is not part of this repository’s context history.',
+      );
+    const active = await this.db.query<{ github_commit_sha: string }>(
+      `SELECT github_commit_sha FROM active_context_releases WHERE project_id=$1`,
+      [project.id],
+    );
+    const fromSha = active.rows[0]?.github_commit_sha;
+    if (!fromSha)
+      throw new BadRequestException(
+        'There is no active context release to restore from.',
+      );
+    if (fromSha === target.sha)
+      throw new BadRequestException('That release is already active.');
+
+    const restored = await this.db.query(
+      `WITH updated AS (
+         UPDATE active_context_releases
+         SET github_commit_sha=$1,branch=$2,updated_at=NOW()
+         WHERE project_id=$3 AND github_commit_sha=$4
+         RETURNING project_id,github_commit_sha
+       )
+       INSERT INTO context_release_rollbacks(project_id,from_commit_sha,to_commit_sha,branch,actor_user_id)
+       SELECT project_id,$4,github_commit_sha,$2,$5 FROM updated
+       RETURNING id`,
+      [target.sha, history.branch, project.id, fromSha, userId],
+    );
+    if (!restored.rowCount)
+      throw new BadRequestException(
+        'The active version changed while restoring. Refresh the history and try again.',
+      );
+    return {
+      activeCommitSha: target.sha,
+      branch: history.branch,
+      message:
+        'The active context version was restored. GitHub history was preserved.',
+    };
+  }
+
   async createToken(userId: string) {
     const raw = `ctxops_${randomBytes(32).toString('base64url')}`;
     const hash = createHash('sha256').update(raw).digest('hex');
