@@ -38,6 +38,16 @@ async function responseMessage(response: Response) {
   return body?.message ?? "Could not complete that action. Please retry.";
 }
 
+async function fetchReleaseHistory(signal?: AbortSignal) {
+  const response = await fetch(`${API_URL}/proposals/releases`, {
+    credentials: "include",
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw new Error(await responseMessage(response));
+  return (await response.json()) as ReleaseHistoryResponse;
+}
+
 function shortSha(sha: string) {
   return sha.slice(0, 7);
 }
@@ -64,12 +74,7 @@ export function ReleaseHistory() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`${API_URL}/proposals/releases`, {
-        credentials: "include",
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(await responseMessage(response));
-      setHistory((await response.json()) as ReleaseHistoryResponse);
+      setHistory(await fetchReleaseHistory());
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -82,8 +87,24 @@ export function ReleaseHistory() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const controller = new AbortController();
+
+    void fetchReleaseHistory(controller.signal)
+      .then(setHistory)
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === "AbortError") {
+          return;
+        }
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Could not load context history.",
+        );
+      })
+      .finally(() => setLoading(false));
+
+    return () => controller.abort();
+  }, []);
 
   async function restore(release: Release) {
     const confirmed = window.confirm(

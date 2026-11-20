@@ -127,7 +127,10 @@ export function parseContent(
       ) {
         throw new Error(`Check the ${key} list.`);
       }
-      const entries = field.map((item) => item.trim()).filter(Boolean);
+      const entries = field
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean);
       if (entries.length) content[key] = entries;
     } else {
       if (typeof field !== 'string' || field.length > 10000) {

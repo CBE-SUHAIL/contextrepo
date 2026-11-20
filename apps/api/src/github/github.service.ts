@@ -771,7 +771,12 @@ export class GithubService {
       userId,
       Number(project.repository_id),
     );
-    const title = String(record.title ?? 'context').toLowerCase();
+    const recordTitle =
+      typeof record.title === 'string' ? record.title : 'context';
+    const recordType =
+      typeof record.type === 'string' ? record.type : 'context';
+    const recordId = typeof record.id === 'string' ? record.id : 'record';
+    const title = recordTitle.toLowerCase();
     const slug =
       title
         .normalize('NFKD')
@@ -779,7 +784,7 @@ export class GithubService {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '')
         .slice(0, 60) || 'context';
-    const path = `context/${String(record.type)}/${slug}-${String(record.id)}.md`;
+    const path = `context/${recordType}/${slug}-${recordId}.md`;
     const contents = matter.stringify('', record);
     const fileUrl = `https://api.github.com/repos/${encodeURIComponent(project.owner)}/${encodeURIComponent(project.name)}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
     const headers = {
@@ -807,7 +812,7 @@ export class GithubService {
       method: 'PUT',
       headers,
       body: JSON.stringify({
-        message: `docs(context): approve ${String(record.title).slice(0, 100)}`,
+        message: `docs(context): approve ${recordTitle.slice(0, 100)}`,
         branch: project.default_branch,
         content: Buffer.from(contents, 'utf8').toString('base64'),
         ...(existingSha ? { sha: existingSha } : {}),

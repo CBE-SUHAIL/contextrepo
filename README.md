@@ -7,9 +7,12 @@ ContextOps is a shared context layer for teams using different AI assistants. It
 - `apps/web`: Next.js dashboard with shadcn/ui.
 - `apps/api`: NestJS REST API and MCP service.
 - GitHub Markdown/YAML context repository: source of truth, pull-request review, and release history.
-- Docker Compose: local development; Kubernetes comes after the core workflow.
+- Docker Compose: production-style local API validation.
+- GitHub Actions: lint, build, and container checks before deployment.
+- Vercel and Railway: managed frontend and API deployment targets.
 
 See [the architecture](docs/architecture.md) and [the implementation plan](docs/implementation-plan.md).
+See [the deployment guide](docs/deployment.md) for the DevOps workflow and environment setup.
 
 ## Current progress
 
