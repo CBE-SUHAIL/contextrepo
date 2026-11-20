@@ -1,0 +1,37 @@
+name: Production health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_run:
+    workflows:
+      - Continuous integration
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-health
+  cancel-in-progress: true
+
+jobs:
+  smoke-test:
+    name: Check production services
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check frontend, API, and GitHub configuration
+        env:
+          APP_URL: https://contextops-web.vercel.app
+        run: bash scripts/smoke-production.sh

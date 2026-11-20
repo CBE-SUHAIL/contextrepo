@@ -13,6 +13,7 @@ ContextOps is a shared context layer for teams using different AI assistants. It
 
 See [the architecture](docs/architecture.md) and [the implementation plan](docs/implementation-plan.md).
 See [the deployment guide](docs/deployment.md) for the DevOps workflow and environment setup.
+Production availability is checked by the scheduled [production health workflow](.github/workflows/production-health.yml); the deployment guide also documents the release rollback procedure.
 
 ## Current progress
 
