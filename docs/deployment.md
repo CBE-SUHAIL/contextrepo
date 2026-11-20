@@ -16,9 +16,9 @@ Copy the example files for local development. Never commit the filled files.
 - API: `apps/api/.env.example` to `apps/api/.env`
 - Web: `apps/web/.env.example` to `apps/web/.env.local`
 
-In Railway, add the API values from `apps/api/.env.example`. Set `API_ORIGIN` to the public Railway URL and `WEB_ORIGIN` to the public Vercel URL. GitHub's callback and setup URLs must use the public Railway URL.
+In Railway, add the API values from `apps/api/.env.example`. Set both `API_ORIGIN` and `WEB_ORIGIN` to the public Vercel URL. The browser reaches the API through a same-origin Vercel rewrite, while Railway remains the API host.
 
-In Vercel, set `NEXT_PUBLIC_CONTEXTOPS_API_URL` to the Railway URL followed by `/api`.
+In Vercel, set `NEXT_PUBLIC_CONTEXTOPS_API_URL` to `/api` and set the server-only `CONTEXTOPS_API_URL` to the Railway URL followed by `/api`. GitHub's callback and setup URLs must use the public Vercel URL followed by `/api/auth/github/callback` and `/api/auth/github/install/callback`. This same-origin setup lets the secure session cookie work with server-rendered dashboard pages.
 
 ## Local production-style API check
 
