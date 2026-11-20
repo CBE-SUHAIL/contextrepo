@@ -7,15 +7,18 @@ ContextOps is a shared context layer for teams using different AI assistants. It
 - `apps/web`: Next.js dashboard with shadcn/ui.
 - `apps/api`: NestJS REST API and MCP service.
 - GitHub Markdown/YAML context repository: source of truth, pull-request review, and release history.
-- Docker Compose: local development; Kubernetes comes after the core workflow.
+- Docker Compose: production-style local API validation.
+- GitHub Actions: lint, build, and container checks before deployment.
+- Vercel and Railway: managed frontend and API deployment targets.
 
 See [the architecture](docs/architecture.md) and [the implementation plan](docs/implementation-plan.md).
+See [the deployment guide](docs/deployment.md) for the DevOps workflow and environment setup.
 
 ## Current progress
 
 Phase 1 architecture and project skeleton are complete. Phase 2A established the record model and dashboard using sample Markdown. Phase 2B.2 replaces the sample data with approved records read from the signed-in user's connected GitHub repository, while preserving search, filters, and record details. The type-specific proposal workflow is implemented locally: each of the seven record types has its own fields, approval checks, GitHub YAML content, and MCP draft submission tool.
 
-GitHub sign-in, one-repository selection, persistent project settings, and context-folder setup are implemented. The library reads approved Markdown records from the connected repository's `context/` folder. Phase 3 provides human approval/rejection, commit-on-approval, conflict warnings, and MCP draft submission. Phase 4 adds MCP search over a pinned approved commit. Apply migration `006_typed_proposal_content.sql` in Supabase to use type-specific proposal content; see [the proposal guide](docs/proposal-drafts.md) and [MCP setup](docs/mcp-proposals.md).
+GitHub sign-in, one-repository selection, persistent project settings, and context-folder setup are implemented. The library reads the active approved context snapshot. Phase 3 provides typed human approval/rejection and GitHub publishing; Phase 4 adds MCP search over the active commit; Phase 5 adds project handoffs, release history, and restore. Apply migrations `006_typed_proposal_content.sql` and `007_context_release_history.sql` in Supabase if you have not already applied them. See [the proposal guide](docs/proposal-drafts.md) and [MCP setup](docs/mcp-proposals.md).
 
 ## Start the development servers
 

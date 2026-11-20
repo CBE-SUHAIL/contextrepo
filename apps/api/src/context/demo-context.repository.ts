@@ -18,7 +18,7 @@ export class DemoContextRepository implements ContextRepository {
     ? resolve(process.env.CONTEXT_REPOSITORY_PATH)
     : resolve(process.cwd(), '../../examples/demo-context');
 
-  async listApproved(_userId: string): Promise<ContextReadResult> {
+  async listApproved(): Promise<ContextReadResult> {
     const files = await this.findMarkdownFiles(this.root);
     const records = await Promise.all(
       files.map((file) => this.readRecord(file)),
@@ -49,7 +49,7 @@ export class DemoContextRepository implements ContextRepository {
     }
 
     const nested = await Promise.all(
-      entries.map((entry) => {
+      entries.map(async (entry) => {
         const fullPath = resolve(directory, entry.name);
         if (entry.isDirectory()) return this.findMarkdownFiles(fullPath);
         return entry.isFile() && entry.name.endsWith('.md') ? [fullPath] : [];
@@ -79,17 +79,17 @@ export class DemoContextRepository implements ContextRepository {
       type: type as ContextType,
       schemaVersion: 1,
       content: legacyContent(type as ContextType, data),
-      projectId: String(data.projectId ?? 'contextops-demo'),
-      status: data.status === 'approved' ? 'approved' : 'approved',
-      updatedAt: String(data.updatedAt ?? ''),
-      owner: String(data.owner ?? 'ContextOps team'),
+      projectId: this.stringValue(data.projectId, 'contextops-demo'),
+      status: 'approved',
+      updatedAt: this.stringValue(data.updatedAt),
+      owner: this.stringValue(data.owner, 'ContextOps team'),
       tags: this.stringArray(data.tags),
-      question: String(data.question ?? ''),
-      summary: String(data.summary ?? parsed.content.trim()),
-      rationale: String(data.rationale ?? ''),
+      question: this.stringValue(data.question),
+      summary: this.stringValue(data.summary, parsed.content.trim()),
+      rationale: this.stringValue(data.rationale),
       constraints: this.stringArray(data.constraints),
       alternatives: this.stringArray(data.alternatives),
-      discussionSummary: String(data.discussionSummary ?? ''),
+      discussionSummary: this.stringValue(data.discussionSummary),
       sourceReferences: this.stringArray(data.sourceReferences),
     };
   }
@@ -97,5 +97,9 @@ export class DemoContextRepository implements ContextRepository {
   private stringArray(value: unknown): string[] {
     if (!Array.isArray(value)) return [];
     return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  private stringValue(value: unknown, fallback = ''): string {
+    return typeof value === 'string' ? value : fallback;
   }
 }

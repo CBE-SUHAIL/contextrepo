@@ -105,7 +105,7 @@ export class GithubAuthController {
         this.cookieOptions(10 * 60 * 1000),
       );
       return response.redirect(this.github.installationUrl(installState));
-    } catch (error) {
+    } catch {
       response.clearCookie(OAUTH_COOKIE, { path: '/' });
       response.clearCookie(RECONNECT_COOKIE, { path: '/' });
       return response.redirect(
@@ -143,7 +143,7 @@ export class GithubAuthController {
         return response.redirect(this.webUrl('/'));
       }
       return response.redirect(this.webUrl('/setup/repositories'));
-    } catch (error) {
+    } catch {
       response.clearCookie(INSTALL_COOKIE, { path: '/' });
       return response.redirect(
         this.webUrl(`/setup?error=github_install_failed`),

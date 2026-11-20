@@ -272,7 +272,7 @@ export class McpController {
             userId,
             'AI assistant',
             {
-              title: String(title ?? ''),
+              title: typeof title === 'string' ? title : '',
               type: tool.type,
               content,
               tags: Array.isArray(tags) ? tags : [],

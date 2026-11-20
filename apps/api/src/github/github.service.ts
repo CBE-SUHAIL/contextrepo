@@ -701,6 +701,57 @@ export class GithubService {
       );
   }
 
+  async listContextCommits(userId: string) {
+    const projectResult = await this.db.query<{
+      repository_id: string;
+      owner: string;
+      name: string;
+      default_branch: string;
+    }>(
+      `SELECT repository_id,owner,name,default_branch FROM connected_projects WHERE user_id=$1 LIMIT 1`,
+      [userId],
+    );
+    if (!projectResult.rowCount)
+      throw new NotFoundException('Connect a project before viewing releases.');
+    const project = projectResult.rows[0];
+    const access = await this.selectedInstallation(
+      userId,
+      Number(project.repository_id),
+    );
+    const url = new URL(
+      `https://api.github.com/repos/${encodeURIComponent(project.owner)}/${encodeURIComponent(project.name)}/commits`,
+    );
+    url.searchParams.set('path', 'context');
+    url.searchParams.set('sha', project.default_branch);
+    url.searchParams.set('per_page', '50');
+    const response = await fetch(url, {
+      headers: this.githubHeaders(access.token),
+    });
+    if (!response.ok)
+      throw new BadGatewayException(
+        'GitHub could not load the context release history. Try again.',
+      );
+    const commits = (await response.json()) as Array<{
+      sha: string;
+      html_url: string;
+      commit: {
+        message: string;
+        author?: { name?: string; date?: string };
+      };
+    }>;
+    return {
+      repository: `${project.owner}/${project.name}`,
+      branch: project.default_branch,
+      items: commits.map((commit) => ({
+        sha: commit.sha,
+        url: commit.html_url,
+        message: commit.commit.message.split('\n')[0],
+        author: commit.commit.author?.name ?? 'GitHub contributor',
+        createdAt: commit.commit.author?.date ?? '',
+      })),
+    };
+  }
+
   async publishContextRecord(userId: string, record: Record<string, unknown>) {
     const projectResult = await this.db.query<{
       repository_id: string;
@@ -720,7 +771,12 @@ export class GithubService {
       userId,
       Number(project.repository_id),
     );
-    const title = String(record.title ?? 'context').toLowerCase();
+    const recordTitle =
+      typeof record.title === 'string' ? record.title : 'context';
+    const recordType =
+      typeof record.type === 'string' ? record.type : 'context';
+    const recordId = typeof record.id === 'string' ? record.id : 'record';
+    const title = recordTitle.toLowerCase();
     const slug =
       title
         .normalize('NFKD')
@@ -728,7 +784,7 @@ export class GithubService {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '')
         .slice(0, 60) || 'context';
-    const path = `context/${String(record.type)}/${slug}-${String(record.id)}.md`;
+    const path = `context/${recordType}/${slug}-${recordId}.md`;
     const contents = matter.stringify('', record);
     const fileUrl = `https://api.github.com/repos/${encodeURIComponent(project.owner)}/${encodeURIComponent(project.name)}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
     const headers = {
@@ -756,7 +812,7 @@ export class GithubService {
       method: 'PUT',
       headers,
       body: JSON.stringify({
-        message: `docs(context): approve ${String(record.title).slice(0, 100)}`,
+        message: `docs(context): approve ${recordTitle.slice(0, 100)}`,
         branch: project.default_branch,
         content: Buffer.from(contents, 'utf8').toString('base64'),
         ...(existingSha ? { sha: existingSha } : {}),

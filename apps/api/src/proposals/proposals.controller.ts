@@ -22,7 +22,7 @@ export class ProposalsController {
     private readonly proposals: ProposalService,
   ) {}
 
-  @Get() async list(@Req() req: Request, @Headers('accept') _accept?: string) {
+  @Get() async list(@Req() req: Request) {
     const user = await this.user(req);
     const url = new URL(req.originalUrl, 'http://localhost');
     const status = url.searchParams.get('status') ?? 'draft';
@@ -30,6 +30,19 @@ export class ProposalsController {
       user.id,
       status === 'all' ? ['draft', 'approved', 'rejected'] : [status],
     );
+  }
+  @Get('releases') async releases(@Req() req: Request) {
+    const user = await this.user(req);
+    return this.proposals.releaseHistory(user.id);
+  }
+  @Post('releases/:sha/rollback') async rollback(
+    @Req() req: Request,
+    @Param('sha') sha: string,
+    @Headers('origin') origin?: string,
+  ) {
+    this.origin(origin);
+    const user = await this.user(req);
+    return this.proposals.rollbackRelease(user.id, sha);
   }
   @Post() async create(
     @Req() req: Request,

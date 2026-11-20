@@ -25,4 +25,4 @@ Each type-specific tool requires a title. Details may be omitted while drafting;
 
 ## Database
 
-For a new database, apply migrations `003_context_proposal_drafts.sql`, `004_proposal_review_mcp.sql`, `005_active_context_release.sql`, and `006_typed_proposal_content.sql` in order. Existing installations should apply migration `006_typed_proposal_content.sql`. Migration 005 stores the active approved Git commit for each project; migration 006 adds type-specific proposal content. Do not put the raw MCP key in SQL or `.env`.
+For a new database, apply migrations `003_context_proposal_drafts.sql` through `007_context_release_history.sql` in order. Existing installations should apply any missing migration, including `007_context_release_history.sql` for the History page. Migration 005 stores the active approved Git commit for each project; migration 006 adds type-specific proposal content; migration 007 records restore events. Do not put the raw MCP key in SQL or `.env`.

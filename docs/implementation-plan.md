@@ -91,16 +91,17 @@ This first slice uses `examples/demo-context/` fixtures so the cross-assistant c
 
 **Complete when:** After applying `005_active_context_release.sql`, two independent MCP requests return the same pinned approved context and commit; a ContextOps approval moves the active commit forward; drafts/rejections stay hidden; MCP clients cannot approve or publish.
 
-### Phase 5 — Add project progress and recovery
+### Phase 5 — Add project progress and recovery (implemented locally; migration and manual verification pending)
 
 - Use Project State records for completed work, current work, blockers, and next actions.
 - Submit handoff updates through the same review and release process as other records.
 - Show release history and let a reviewer restore an earlier approved release.
 - Keep an audit record of rollback actions; preserve all Git history.
+- The Activity page shows context-related GitHub commits, marks the active commit used for AI retrieval, and lets the owner restore an earlier context commit. Restore changes the active pointer only; it does not rewrite Git history. Migration `007_context_release_history.sql` records restore events.
 
 **Deliverable:** A reliable handoff and recovery workflow.
 
-**Complete when:** A second AI session can retrieve an approved handoff, and the team can restore and serve an earlier approved context version.
+**Complete when:** After applying migration `007_context_release_history.sql`, a Project State handoff can be approved and retrieved by MCP; the Activity page shows history; restoring an earlier version updates the context library and MCP retrieval to that commit; restore activity is recorded while Git history remains unchanged.
 
 ### Phase 6 — Make the product easy to run and demonstrate
 

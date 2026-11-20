@@ -7,6 +7,8 @@
     "dev": "corepack pnpm --parallel --filter @contextops/api --filter @contextops/web dev",
     "dev:api": "corepack pnpm --filter @contextops/api dev",
     "dev:web": "corepack pnpm --filter @contextops/web dev",
-    "build": "corepack pnpm --recursive build"
+    "build": "corepack pnpm --recursive build",
+    "lint": "corepack pnpm --recursive lint",
+    "check": "corepack pnpm lint && corepack pnpm build"
   }
 }

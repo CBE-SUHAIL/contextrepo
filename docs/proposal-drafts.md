@@ -4,18 +4,18 @@ Proposal drafts are saved in Supabase PostgreSQL and do not appear in the approv
 
 ## Enable draft saving in Supabase
 
-For a new Supabase database, apply migrations `003`, `004`, `005`, and `006` in order. If the proposal and review workflow is already set up, apply only `006_typed_proposal_content.sql` now.
+For a new Supabase database, apply migrations `003` through `007` in order. If the earlier proposal, review, and typed-content workflow is already set up, apply `007_context_release_history.sql` for Phase 5.
 
 1. Open the Supabase project and go to **SQL Editor**.
 2. Open `apps/api/database/migrations/003_context_proposal_drafts.sql` in this repository.
 3. Copy the complete SQL into the Supabase editor and run it once.
-4. For the initial setup, apply `004_proposal_review_mcp.sql`, then `005_active_context_release.sql` and `006_typed_proposal_content.sql`; restart the API and web app.
+4. For the initial setup, apply `004_proposal_review_mcp.sql`, `005_active_context_release.sql`, `006_typed_proposal_content.sql`, and `007_context_release_history.sql`; restart the API and web app.
 
-Do not rerun migrations `001` or `002`. Migration `003` creates the proposal table. Migration `004` adds review states/publication details and MCP keys. Migration `005` adds the pinned approved-context release. Migration `006` adds type-specific draft content while keeping existing draft columns readable.
+Do not rerun migrations `001` or `002`. Migration `003` creates the proposal table. Migration `004` adds review states/publication details and MCP keys. Migration `005` adds the active approved-context release. Migration `006` adds type-specific draft content while keeping existing draft columns readable. Migration `007` records context restore events.
 
 ## Enable review and MCP
 
-1. In Supabase **SQL Editor**, apply any missing migrations in order, including `apps/api/database/migrations/006_typed_proposal_content.sql`.
+1. In Supabase **SQL Editor**, apply any missing migrations in order, including `apps/api/database/migrations/007_context_release_history.sql`.
 2. Restart the API and web app after the migration is complete.
 3. Open **Proposals**, select a draft, review it, and choose **Approve & publish** or **Reject**.
 4. Approval validates required information and writes a Markdown record under `context/<type>/` on the connected GitHub repository's default branch. The page displays the result and GitHub commit path.

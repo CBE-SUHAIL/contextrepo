@@ -170,7 +170,14 @@ export class GithubContextRepository implements ContextRepository {
   }
 
   private dateString(value: unknown): string | null {
-    const date = value instanceof Date ? value : new Date(String(value ?? ''));
+    if (
+      !(value instanceof Date) &&
+      typeof value !== 'string' &&
+      typeof value !== 'number'
+    ) {
+      return null;
+    }
+    const date = value instanceof Date ? value : new Date(value);
     if (!Number.isFinite(date.getTime())) return null;
     return date.toISOString().slice(0, 10);
   }
@@ -183,6 +190,9 @@ export class GithubContextRepository implements ContextRepository {
     ) {
       return null;
     }
-    return value.map((item) => item.trim()).filter(Boolean);
+    return value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
 }
