@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
   async rewrites() {
     if (!apiUrl) return [];
 
+    // Keep browser requests and session cookies on the frontend origin.
     return [
       {
         source: "/api/:path*",
