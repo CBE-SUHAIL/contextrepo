@@ -16,6 +16,7 @@ const SESSION_COOKIE = 'contextops_session';
 const OAUTH_COOKIE = 'contextops_oauth_state';
 const INSTALL_COOKIE = 'contextops_install_state';
 const RECONNECT_COOKIE = 'contextops_reconnect';
+const INVITE_COOKIE = 'contextops_invite';
 
 @Controller('auth/github')
 export class GithubAuthController {
@@ -29,9 +30,19 @@ export class GithubAuthController {
   @Get('start')
   start(
     @Query('intent') intent: string | undefined,
+    @Query('invite') invite: string | undefined,
     @Res() response: Response,
   ) {
     const authIntent = intent === 'signup' ? 'signup' : 'login';
+    if (invite && /^[A-Za-z0-9_-]{40,100}$/.test(invite)) {
+      response.cookie(
+        INVITE_COOKIE,
+        invite,
+        this.cookieOptions(10 * 60 * 1000),
+      );
+    } else {
+      response.clearCookie(INVITE_COOKIE, { path: '/' });
+    }
     return this.beginAuthorization(response, authIntent);
   }
 
@@ -61,18 +72,33 @@ export class GithubAuthController {
       const result = await this.github.finishAuthorization(code, intent);
       response.clearCookie(OAUTH_COOKIE, { path: '/' });
       const reconnect = this.cookie(request, RECONNECT_COOKIE) === '1';
+      const invite = this.cookie(request, INVITE_COOKIE);
       response.clearCookie(RECONNECT_COOKIE, { path: '/' });
       if (result.accountStatus === 'not_found') {
-        return response.redirect(this.webUrl('/login?error=account_not_found'));
+        return response.redirect(
+          this.webUrl(
+            `/signup?error=account_not_found${invite ? `&invite=${encodeURIComponent(invite)}` : ''}`,
+          ),
+        );
       }
       if (result.accountStatus === 'already_exists') {
-        return response.redirect(this.webUrl('/login?error=account_exists'));
+        return response.redirect(
+          this.webUrl(
+            `/login?error=account_exists${invite ? `&invite=${encodeURIComponent(invite)}` : ''}`,
+          ),
+        );
       }
       response.cookie(
         SESSION_COOKIE,
         result.session,
         this.cookieOptions(7 * 24 * 60 * 60 * 1000),
       );
+      response.clearCookie(INVITE_COOKIE, { path: '/' });
+      if (invite && /^[A-Za-z0-9_-]{40,100}$/.test(invite)) {
+        return response.redirect(
+          this.webUrl(`/join/${encodeURIComponent(invite)}`),
+        );
+      }
       if (result.isNewUser) {
         const installState = this.github.newState();
         await this.github.savePendingAuthorization(
@@ -108,6 +134,7 @@ export class GithubAuthController {
     } catch {
       response.clearCookie(OAUTH_COOKIE, { path: '/' });
       response.clearCookie(RECONNECT_COOKIE, { path: '/' });
+      response.clearCookie(INVITE_COOKIE, { path: '/' });
       return response.redirect(
         this.webUrl(`/${intent}?error=github_signin_failed`),
       );

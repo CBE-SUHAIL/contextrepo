@@ -26,6 +26,11 @@ export function GithubSignIn({ mode }: { mode: "login" | "signup" }) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const searchParams = useSearchParams();
   const errorCode = searchParams.get("error");
+  const invite = searchParams.get("invite");
+  const inviteQuery =
+    invite && /^[A-Za-z0-9_-]{40,100}$/.test(invite)
+      ? `&invite=${encodeURIComponent(invite)}`
+      : "";
   const errorMessages: Record<string, string> = {
     account_not_found:
       "We could not find a ContextOps account for this GitHub account. Sign up first.",
@@ -104,7 +109,7 @@ export function GithubSignIn({ mode }: { mode: "login" | "signup" }) {
           <a
             href={
               configured === true
-                ? `${API_URL}/auth/github/start?intent=${mode}`
+                ? `${API_URL}/auth/github/start?intent=${mode}${inviteQuery}`
                 : undefined
             }
             aria-disabled={configured !== true}
@@ -134,7 +139,7 @@ export function GithubSignIn({ mode }: { mode: "login" | "signup" }) {
           <p className="mt-6 border-t border-stone-100 pt-5 text-center text-sm text-stone-600">
             {isSignup ? "Already have an account?" : "New to ContextOps?"}{" "}
             <Link
-              href={isSignup ? "/login" : "/signup"}
+              href={`${isSignup ? "/login" : "/signup"}${invite ? `?invite=${encodeURIComponent(invite)}` : ""}`}
               className="font-medium text-violet-800 underline-offset-4 hover:text-violet-950 hover:underline"
             >
               {isSignup ? "Sign in" : "Sign up"}

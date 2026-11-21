@@ -31,6 +31,7 @@ export type WorkspaceProject = {
   connectedAt: string;
   lastVerifiedAt: string | null;
   repositoryUrl: string;
+  role: "owner" | "reviewer" | "contributor";
 };
 
 export type WorkspaceState = {

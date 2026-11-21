@@ -43,7 +43,7 @@ The dashboard uses port 3000; the API uses port 4000.
 
 ## Supabase database connection
 
-The API reads its local environment from `apps/api/.env`. Copy `apps/api/.env.example` to `apps/api/.env`, then paste the Supabase PostgreSQL connection string after `DATABASE_URL=`. Keep `.env` private; it is ignored by Git. The initial onboarding schema is in `apps/api/database/migrations/001_github_onboarding.sql` and has been applied to the connected Supabase project. Run `apps/api/database/migrations/002_persistent_github_connection.sql` in Supabase before using the updated sign-in and Settings flow.
+The API reads its local environment from `apps/api/.env`. Copy `apps/api/.env.example` to `apps/api/.env`, then paste the Supabase PostgreSQL connection string after `DATABASE_URL=`. Keep `.env` private; it is ignored by Git. Apply the numbered files in `apps/api/database/migrations/` in order. Migration `008_shared_project_membership.sql` adds project invitations, member roles, and shared proposal review.
 
 ## GitHub App setup for onboarding
 
@@ -55,11 +55,12 @@ Create a GitHub App and fill its values in `apps/api/.env`:
 - Setup URL: `http://localhost:4000/api/auth/github/install/callback`.
 - Repository permissions: **Contents: Read and write** and **Metadata: Read-only**. Users choose which repositories to grant during installation.
 
-Restart the API after filling in these settings. New users open `http://localhost:3000/signup`; returning users open `http://localhost:3000/login`. GitHub verifies the account. New accounts continue into app installation and repository setup; returning accounts go to their saved project. If `context/` is missing, the user can ask ContextOps to add `context/README.md` to the default branch.
+Restart the API after filling in these settings. A project owner signs up, installs the GitHub App, and selects the repository. Invited members sign in through their invitation link and do not install the GitHub App themselves. If `context/` is missing, the owner can ask ContextOps to add `context/README.md` to the default branch.
 
 ## Account, repository, and UI behavior
 
-- Each ContextOps account has one saved project for the current MVP.
+- Each account belongs to one shared project in the current MVP. The owner can invite contributors; invited members can create their own MCP key, read approved context, and submit drafts to the same proposal queue.
+- Owners and reviewers can edit, approve, or reject team drafts. Contributors can edit their own drafts. Approved records are published through the project owner's GitHub App installation, so members do not need direct GitHub write credentials.
 - The browser receives a seven-day, HttpOnly session cookie. PostgreSQL stores only a hash of its session token. Signing out deletes that session; it does not delete the saved project or uninstall the GitHub App.
 - ContextOps periodically checks the GitHub App installation and repository access. The dashboard and Settings show the saved repository and its connection state. The user can reconnect or revoke the app from GitHub.
 - See [`docs/github-account-and-repository-connection.md`](docs/github-account-and-repository-connection.md) for the flow and security details, and [`docs/ui-guidelines.md`](docs/ui-guidelines.md) for the shared UI style teammates should follow.

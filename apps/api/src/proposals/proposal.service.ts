@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -29,6 +30,7 @@ export type ProposalInput = {
 
 type ProposalRow = {
   id: string;
+  user_id: string;
   project_id: string;
   title: string;
   type: ContextType;
@@ -59,14 +61,22 @@ export class ProposalService {
   ) {}
 
   async list(userId: string, statuses = ['draft']) {
+    const project = await this.project(userId);
     const result = await this.db.query<ProposalRow>(
       `SELECT p.*, u.github_login AS owner FROM context_proposals p
-       JOIN app_users u ON u.id = p.user_id WHERE p.user_id = $1
-       AND p.project_id = (SELECT id FROM connected_projects WHERE user_id=$1 LIMIT 1)
+       JOIN app_users u ON u.id = p.user_id
+       WHERE p.project_id = $1
        AND p.status = ANY($2::text[]) ORDER BY p.updated_at DESC`,
-      [userId, statuses],
+      [project.id, statuses],
     );
-    return { items: result.rows.map((row) => this.client(row)) };
+    const canReview = project.role !== 'contributor';
+    return {
+      items: result.rows.map((row) => ({
+        ...this.client(row),
+        canEdit: canReview || row.user_id === userId,
+        canReview,
+      })),
+    };
   }
 
   async createDraft(userId: string, owner: string, body: unknown) {
@@ -91,10 +101,13 @@ export class ProposalService {
   }
 
   async update(userId: string, id: string, body: unknown) {
+    const project = await this.project(userId);
     const input = this.parse(body);
     const result = await this.db.query<ProposalRow>(
       `UPDATE context_proposals SET title=$1,type=$2,content=$3::jsonb,tags=$4,source_references=$5,question=$6,summary=$7,rationale=$8,constraints=$9,alternatives=$10,discussion_summary=$11,updated_at=NOW()
-       WHERE id=$12 AND user_id=$13 AND status='draft' RETURNING *, (SELECT github_login FROM app_users WHERE id=user_id) AS owner`,
+       WHERE id=$12 AND project_id=$13
+       AND ($14::boolean OR user_id=$15) AND status='draft'
+       RETURNING *, (SELECT github_login FROM app_users WHERE id=user_id) AS owner`,
       [
         input.title,
         input.type,
@@ -103,6 +116,8 @@ export class ProposalService {
         input.sourceReferences,
         ...this.legacy(input),
         id,
+        project.id,
+        project.role !== 'contributor',
         userId,
       ],
     );
@@ -117,17 +132,27 @@ export class ProposalService {
     decision: 'approve' | 'reject',
     note = '',
   ) {
+    const project = await this.project(userId);
+    if (project.role === 'contributor') {
+      throw new ForbiddenException(
+        'A reviewer or project owner must approve proposals.',
+      );
+    }
     const found = await this.db.query<ProposalRow>(
-      `SELECT p.*,u.github_login AS owner FROM context_proposals p JOIN app_users u ON u.id=p.user_id WHERE p.id=$1 AND p.user_id=$2 AND p.status='draft'`,
-      [id, userId],
+      `SELECT p.*,u.github_login AS owner FROM context_proposals p
+       JOIN app_users u ON u.id=p.user_id
+       WHERE p.id=$1 AND p.project_id=$2 AND p.status='draft'`,
+      [id, project.id],
     );
     if (!found.rowCount)
       throw new NotFoundException('That draft was not found.');
     const p = found.rows[0];
     if (decision === 'reject') {
       const out = await this.db.query<ProposalRow>(
-        `UPDATE context_proposals SET status='rejected',reviewed_at=NOW(),review_note=$3,updated_at=NOW() WHERE id=$1 AND user_id=$2 RETURNING *, (SELECT github_login FROM app_users WHERE id=$2) AS owner`,
-        [id, userId, note.slice(0, 2000)],
+        `UPDATE context_proposals SET status='rejected',reviewed_at=NOW(),review_note=$3,updated_at=NOW()
+         WHERE id=$1 AND project_id=$2 RETURNING *,
+         (SELECT github_login FROM app_users WHERE id=context_proposals.user_id) AS owner`,
+        [id, project.id, note.slice(0, 2000)],
       );
       return this.client(out.rows[0]);
     }
@@ -142,26 +167,28 @@ export class ProposalService {
       throw new BadRequestException(
         `Complete these ${p.type} fields before approval: ${missing.join(', ')}.`,
       );
-    const project = await this.project(userId);
     if (type === 'project-state' && !content.asOf) {
       content = { ...content, asOf: new Date().toISOString().slice(0, 10) };
     }
     const legacy = legacyFields(type, content);
-    const published = await this.github.publishContextRecord(userId, {
-      schemaVersion: 2,
-      id: p.id,
-      projectId: project.id,
-      title: p.title,
-      type: p.type,
-      status: 'approved',
-      reviewStatus: 'approved',
-      updatedAt: new Date().toISOString().slice(0, 10),
-      owner: p.owner,
-      content,
-      ...legacy,
-      tags: p.tags ?? [],
-      sourceReferences: p.source_references ?? [],
-    });
+    const published = await this.github.publishContextRecord(
+      project.ownerUserId,
+      {
+        schemaVersion: 2,
+        id: p.id,
+        projectId: project.id,
+        title: p.title,
+        type: p.type,
+        status: 'approved',
+        reviewStatus: 'approved',
+        updatedAt: new Date().toISOString().slice(0, 10),
+        owner: p.owner,
+        content,
+        ...legacy,
+        tags: p.tags ?? [],
+        sourceReferences: p.source_references ?? [],
+      },
+    );
     await this.db.query(
       `INSERT INTO active_context_releases(project_id,github_commit_sha,branch,updated_at)
        VALUES($1,$2,$3,NOW()) ON CONFLICT(project_id) DO UPDATE SET
@@ -169,8 +196,16 @@ export class ProposalService {
       [project.id, published.commitSha, published.branch],
     );
     const out = await this.db.query<ProposalRow>(
-      `UPDATE context_proposals SET status='approved',reviewed_at=NOW(),review_note=$3,published_path=$4,published_commit_sha=$5,updated_at=NOW() WHERE id=$1 AND user_id=$2 AND status='draft' RETURNING *, (SELECT github_login FROM app_users WHERE id=$2) AS owner`,
-      [id, userId, note.slice(0, 2000), published.path, published.commitSha],
+      `UPDATE context_proposals SET status='approved',reviewed_at=NOW(),review_note=$3,published_path=$4,published_commit_sha=$5,updated_at=NOW()
+       WHERE id=$1 AND project_id=$2 AND status='draft' RETURNING *,
+       (SELECT github_login FROM app_users WHERE id=context_proposals.user_id) AS owner`,
+      [
+        id,
+        project.id,
+        note.slice(0, 2000),
+        published.path,
+        published.commitSha,
+      ],
     );
     if (!out.rowCount)
       throw new NotFoundException('That draft was already reviewed.');
@@ -178,9 +213,11 @@ export class ProposalService {
   }
 
   async conflicts(userId: string, id: string) {
+    const project = await this.project(userId);
     const result = await this.db.query<ProposalRow>(
-      `SELECT id,title,type,content,question,summary,rationale,constraints,alternatives,discussion_summary,source_references FROM context_proposals WHERE id=$1 AND user_id=$2 AND status='draft'`,
-      [id, userId],
+      `SELECT id,title,type,content,question,summary,rationale,constraints,alternatives,discussion_summary,source_references
+       FROM context_proposals WHERE id=$1 AND project_id=$2 AND status='draft'`,
+      [id, project.id],
     );
     if (!result.rowCount)
       throw new NotFoundException('That draft was not found.');
@@ -192,7 +229,7 @@ export class ProposalService {
         .toLocaleLowerCase()
         .replace(/[^a-z0-9]+/g, ' ')
         .trim();
-    const source = await this.github.readContextFiles(userId);
+    const source = await this.github.readContextFiles(project.ownerUserId);
     const matches = [] as Array<{
       path: string;
       title: string;
@@ -236,7 +273,7 @@ export class ProposalService {
       `SELECT github_commit_sha,branch FROM active_context_releases WHERE project_id=$1`,
       [project.id],
     );
-    const history = await this.github.listContextCommits(userId);
+    const history = await this.github.listContextCommits(project.ownerUserId);
     const rollbacks = await this.db.query<{
       from_commit_sha: string;
       to_commit_sha: string;
@@ -271,7 +308,12 @@ export class ProposalService {
       throw new BadRequestException('Choose a valid GitHub commit.');
     }
     const project = await this.project(userId);
-    const history = await this.github.listContextCommits(userId);
+    if (project.role === 'contributor') {
+      throw new ForbiddenException(
+        'A reviewer or project owner must restore releases.',
+      );
+    }
+    const history = await this.github.listContextCommits(project.ownerUserId);
     const target = history.items.find(
       (item) => item.sha.toLowerCase() === targetSha.toLowerCase(),
     );
@@ -359,38 +401,31 @@ export class ProposalService {
   }
 
   async searchApprovedContext(userId: string, query?: string, type?: string) {
-    const project = await this.db.query<{ id: string }>(
-      `SELECT id FROM connected_projects WHERE user_id=$1 LIMIT 1`,
-      [userId],
-    );
-    if (!project.rowCount)
-      throw new NotFoundException(
-        'Connect a project before requesting context.',
-      );
+    const project = await this.project(userId);
     let release = await this.db.query<{
       github_commit_sha: string;
       branch: string;
     }>(
       `SELECT github_commit_sha,branch FROM active_context_releases WHERE project_id=$1`,
-      [project.rows[0].id],
+      [project.id],
     );
     if (!release.rowCount) {
-      const head = await this.github.currentContextHead(userId);
+      const head = await this.github.currentContextHead(project.ownerUserId);
       await this.db.query(
         `INSERT INTO active_context_releases(project_id,github_commit_sha,branch) VALUES($1,$2,$3) ON CONFLICT(project_id) DO NOTHING`,
-        [project.rows[0].id, head.commitSha, head.branch],
+        [project.id, head.commitSha, head.branch],
       );
       release = await this.db.query<{
         github_commit_sha: string;
         branch: string;
       }>(
         `SELECT github_commit_sha,branch FROM active_context_releases WHERE project_id=$1`,
-        [project.rows[0].id],
+        [project.id],
       );
     }
     const version = release.rows[0];
     const result = await this.context.list(
-      userId,
+      project.ownerUserId,
       query,
       type,
       version.github_commit_sha,
@@ -405,13 +440,23 @@ export class ProposalService {
   }
 
   private async project(userId: string) {
-    const result = await this.db.query<{ id: string }>(
-      `SELECT id FROM connected_projects WHERE user_id=$1 LIMIT 1`,
+    const result = await this.db.query<{
+      id: string;
+      owner_user_id: string;
+      role: 'owner' | 'reviewer' | 'contributor';
+    }>(
+      `SELECT cp.id,cp.user_id AS owner_user_id,pm.role
+       FROM project_members pm JOIN connected_projects cp ON cp.id=pm.project_id
+       WHERE pm.user_id=$1 LIMIT 1`,
       [userId],
     );
     if (!result.rowCount)
       throw new NotFoundException('Connect a project before using proposals.');
-    return result.rows[0];
+    return {
+      id: result.rows[0].id,
+      ownerUserId: result.rows[0].owner_user_id,
+      role: result.rows[0].role,
+    };
   }
   private parse(body: unknown): ProposalInput {
     if (!body || typeof body !== 'object' || Array.isArray(body))

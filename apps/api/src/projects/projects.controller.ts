@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -12,6 +13,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
 import { GithubService } from '../github/github.service';
 
@@ -32,6 +34,7 @@ type ProjectRow = {
   last_verified_at: Date | null;
   connected_at?: Date;
   account_login?: string;
+  member_role?: 'owner' | 'reviewer' | 'contributor';
 };
 
 @Controller('projects')
@@ -49,6 +52,15 @@ export class ProjectsController {
   ) {
     this.requireSameOrigin(origin);
     const user = await this.currentUser(request);
+    const membership = await this.db.query<{ role: string }>(
+      'SELECT role FROM project_members WHERE user_id=$1 LIMIT 1',
+      [user.id],
+    );
+    if (membership.rowCount && membership.rows[0].role !== 'owner') {
+      throw new ForbiddenException(
+        'Only the project owner can change the connected repository.',
+      );
+    }
     if (
       !Number.isSafeInteger(body.repositoryId) ||
       Number(body.repositoryId) <= 0
@@ -95,6 +107,12 @@ export class ProjectsController {
         contextExists ? 'ready' : 'missing',
       ],
     );
+    await this.db.query(
+      `INSERT INTO project_members(project_id,user_id,role,invited_by)
+       VALUES($1,$2,'owner',$2)
+       ON CONFLICT(project_id,user_id) DO UPDATE SET role='owner'`,
+      [result.rows[0].id, user.id],
+    );
     return this.toClient(result.rows[0]);
   }
 
@@ -102,10 +120,12 @@ export class ProjectsController {
   async current(@Req() request: Request) {
     const user = await this.currentUser(request);
     const result = await this.db.query<ProjectRow>(
-      `SELECT cp.*, cp.created_at AS connected_at, gi.account_login
-       FROM connected_projects cp
+      `SELECT cp.*, cp.created_at AS connected_at, gi.account_login,
+              pm.role AS member_role
+       FROM project_members pm
+       JOIN connected_projects cp ON cp.id = pm.project_id
        LEFT JOIN github_installations gi ON gi.installation_id = cp.installation_id
-       WHERE cp.user_id = $1 LIMIT 1`,
+       WHERE pm.user_id = $1 LIMIT 1`,
       [user.id],
     );
     if (!result.rowCount) return { project: null };
@@ -124,8 +144,8 @@ export class ProjectsController {
         await this.db.query(
           `UPDATE connected_projects
            SET connection_status = $1, last_verified_at = NOW()
-           WHERE id = $2 AND user_id = $3`,
-          [connectionStatus, row.id, user.id],
+           WHERE id = $2`,
+          [connectionStatus, row.id],
         );
         lastVerifiedAt = new Date();
       } catch {
@@ -145,6 +165,120 @@ export class ProjectsController {
         repositoryUrl: `https://github.com/${encodeURIComponent(row.owner)}/${encodeURIComponent(row.name)}`,
       },
     };
+  }
+
+  @Get('team')
+  async team(@Req() request: Request) {
+    const user = await this.currentUser(request);
+    const project = await this.memberProject(user.id);
+    const members = await this.db.query<{
+      id: string;
+      github_login: string;
+      avatar_url: string | null;
+      role: 'owner' | 'reviewer' | 'contributor';
+      created_at: string;
+    }>(
+      `SELECT u.id,u.github_login,u.avatar_url,pm.role,pm.created_at
+       FROM project_members pm JOIN app_users u ON u.id=pm.user_id
+       WHERE pm.project_id=$1
+       ORDER BY CASE pm.role WHEN 'owner' THEN 0 WHEN 'reviewer' THEN 1 ELSE 2 END,
+                pm.created_at`,
+      [project.id],
+    );
+    return {
+      role: project.role,
+      members: members.rows.map((member) => ({
+        id: member.id,
+        login: member.github_login,
+        avatarUrl: member.avatar_url,
+        role: member.role,
+        joinedAt: member.created_at,
+      })),
+    };
+  }
+
+  @Post('invitations')
+  async invite(
+    @Req() request: Request,
+    @Body() body: { role?: string },
+    @Headers('origin') origin?: string,
+  ) {
+    this.requireSameOrigin(origin);
+    const user = await this.currentUser(request);
+    const project = await this.memberProject(user.id);
+    if (project.role !== 'owner') {
+      throw new ForbiddenException(
+        'Only the project owner can invite members.',
+      );
+    }
+    const role = body.role === 'reviewer' ? 'reviewer' : 'contributor';
+    const token = randomBytes(32).toString('base64url');
+    await this.db.query(
+      `INSERT INTO project_invitations(project_id,token_hash,role,created_by,expires_at)
+       VALUES($1,$2,$3,$4,NOW()+INTERVAL '7 days')`,
+      [project.id, this.hash(token), role, user.id],
+    );
+    const webOrigin = (
+      process.env.WEB_ORIGIN ?? 'http://localhost:3000'
+    ).replace(/\/$/, '');
+    return {
+      inviteUrl: `${webOrigin}/join/${encodeURIComponent(token)}`,
+      role,
+      expiresInDays: 7,
+    };
+  }
+
+  @Post('invitations/accept')
+  async acceptInvitation(
+    @Req() request: Request,
+    @Body() body: { token?: string },
+    @Headers('origin') origin?: string,
+  ) {
+    this.requireSameOrigin(origin);
+    const user = await this.currentUser(request);
+    const token = typeof body.token === 'string' ? body.token.trim() : '';
+    if (!/^[A-Za-z0-9_-]{40,100}$/.test(token)) {
+      throw new BadRequestException('This invitation link is invalid.');
+    }
+    const invitation = await this.db.query<{
+      id: string;
+      project_id: string;
+      role: 'reviewer' | 'contributor';
+    }>(
+      `SELECT id,project_id,role FROM project_invitations
+       WHERE token_hash=$1 AND accepted_at IS NULL AND expires_at>NOW()
+       FOR UPDATE`,
+      [this.hash(token)],
+    );
+    if (!invitation.rowCount) {
+      throw new BadRequestException(
+        'This invitation has expired or was already used.',
+      );
+    }
+    const existing = await this.db.query(
+      'SELECT 1 FROM project_members WHERE user_id=$1 LIMIT 1',
+      [user.id],
+    );
+    if (existing.rowCount) {
+      throw new ConflictException('Your account already belongs to a project.');
+    }
+    const invite = invitation.rows[0];
+    const joined = await this.db.query(
+      `WITH claimed AS (
+         UPDATE project_invitations
+         SET accepted_by=$2,accepted_at=NOW()
+         WHERE id=$1 AND accepted_at IS NULL
+         RETURNING project_id,role,created_by
+       )
+       INSERT INTO project_members(project_id,user_id,role,invited_by)
+       SELECT project_id,$2,role,created_by FROM claimed
+       RETURNING project_id`,
+      [invite.id, user.id],
+    );
+    if (!joined.rowCount) {
+      throw new ConflictException('This invitation was already accepted.');
+    }
+    return { joined: true, projectId: invite.project_id, role: invite.role };
   }
 
   @Post(':id/initialize-context')
@@ -184,6 +318,25 @@ export class ProjectsController {
     return this.github.currentUser(session);
   }
 
+  private async memberProject(userId: string) {
+    const result = await this.db.query<{
+      id: string;
+      role: 'owner' | 'reviewer' | 'contributor';
+    }>(
+      `SELECT cp.id,pm.role FROM project_members pm
+       JOIN connected_projects cp ON cp.id=pm.project_id
+       WHERE pm.user_id=$1 LIMIT 1`,
+      [userId],
+    );
+    if (!result.rowCount)
+      throw new BadRequestException('Join or connect a project first.');
+    return result.rows[0];
+  }
+
+  private hash(value: string) {
+    return createHash('sha256').update(value).digest('hex');
+  }
+
   private cookie(request: Request, name: string) {
     const raw = request.headers.cookie ?? '';
     for (const part of raw.split(';')) {
@@ -213,6 +366,7 @@ export class ProjectsController {
       defaultBranch: project.default_branch,
       contextStatus: project.context_status,
       connectionStatus: project.connection_status ?? 'connected',
+      role: project.member_role ?? 'owner',
     };
   }
 }

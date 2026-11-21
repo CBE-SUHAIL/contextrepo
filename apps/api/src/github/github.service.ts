@@ -157,7 +157,7 @@ export class GithubService {
       [sessionHash, userId],
     );
     const projectResult = await this.db.query(
-      'SELECT 1 FROM connected_projects WHERE user_id = $1 LIMIT 1',
+      'SELECT 1 FROM project_members WHERE user_id = $1 LIMIT 1',
       [userId],
     );
     const installationResult = await this.db.query(
@@ -255,7 +255,7 @@ export class GithubService {
   async progress(userId: string) {
     const [project, installation] = await Promise.all([
       this.db.query(
-        'SELECT 1 FROM connected_projects WHERE user_id = $1 LIMIT 1',
+        'SELECT 1 FROM project_members WHERE user_id = $1 LIMIT 1',
         [userId],
       ),
       this.db.query(
@@ -491,9 +491,12 @@ export class GithubService {
       name: string;
       full_name: string;
       default_branch: string;
+      owner_user_id: string;
     }>(
-      `SELECT id, repository_id, owner, name, full_name, default_branch
-       FROM connected_projects WHERE user_id = $1 LIMIT 1`,
+      `SELECT cp.id,cp.repository_id,cp.owner,cp.name,cp.full_name,
+              cp.default_branch,cp.user_id AS owner_user_id
+       FROM project_members pm JOIN connected_projects cp ON cp.id=pm.project_id
+       WHERE pm.user_id=$1 LIMIT 1`,
       [userId],
     );
     if (!projectResult.rowCount) {
@@ -504,7 +507,7 @@ export class GithubService {
 
     const project = projectResult.rows[0];
     const access = await this.selectedInstallation(
-      userId,
+      project.owner_user_id,
       Number(project.repository_id),
     );
     let commitSha = pinnedRef;
@@ -621,8 +624,8 @@ export class GithubService {
 
     const contextFolderExists = await readDirectory('context');
     await this.db.query(
-      'UPDATE connected_projects SET context_status = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3',
-      [contextFolderExists ? 'ready' : 'missing', project.id, userId],
+      'UPDATE connected_projects SET context_status = $1, updated_at = NOW() WHERE id = $2',
+      [contextFolderExists ? 'ready' : 'missing', project.id],
     );
     return {
       files,
@@ -641,8 +644,12 @@ export class GithubService {
       owner: string;
       name: string;
       default_branch: string;
+      owner_user_id: string;
     }>(
-      `SELECT repository_id,owner,name,default_branch FROM connected_projects WHERE user_id=$1 LIMIT 1`,
+      `SELECT cp.repository_id,cp.owner,cp.name,cp.default_branch,
+              cp.user_id AS owner_user_id
+       FROM project_members pm JOIN connected_projects cp ON cp.id=pm.project_id
+       WHERE pm.user_id=$1 LIMIT 1`,
       [userId],
     );
     if (!result.rowCount)
@@ -651,7 +658,7 @@ export class GithubService {
       );
     const project = result.rows[0];
     const access = await this.selectedInstallation(
-      userId,
+      project.owner_user_id,
       Number(project.repository_id),
     );
     const response = await fetch(
@@ -707,15 +714,19 @@ export class GithubService {
       owner: string;
       name: string;
       default_branch: string;
+      owner_user_id: string;
     }>(
-      `SELECT repository_id,owner,name,default_branch FROM connected_projects WHERE user_id=$1 LIMIT 1`,
+      `SELECT cp.repository_id,cp.owner,cp.name,cp.default_branch,
+              cp.user_id AS owner_user_id
+       FROM project_members pm JOIN connected_projects cp ON cp.id=pm.project_id
+       WHERE pm.user_id=$1 LIMIT 1`,
       [userId],
     );
     if (!projectResult.rowCount)
       throw new NotFoundException('Connect a project before viewing releases.');
     const project = projectResult.rows[0];
     const access = await this.selectedInstallation(
-      userId,
+      project.owner_user_id,
       Number(project.repository_id),
     );
     const url = new URL(
@@ -758,8 +769,12 @@ export class GithubService {
       owner: string;
       name: string;
       default_branch: string;
+      owner_user_id: string;
     }>(
-      `SELECT repository_id,owner,name,default_branch FROM connected_projects WHERE user_id=$1 LIMIT 1`,
+      `SELECT cp.repository_id,cp.owner,cp.name,cp.default_branch,
+              cp.user_id AS owner_user_id
+       FROM project_members pm JOIN connected_projects cp ON cp.id=pm.project_id
+       WHERE pm.user_id=$1 LIMIT 1`,
       [userId],
     );
     if (!projectResult.rowCount)
@@ -768,7 +783,7 @@ export class GithubService {
       );
     const project = projectResult.rows[0];
     const access = await this.selectedInstallation(
-      userId,
+      project.owner_user_id,
       Number(project.repository_id),
     );
     const recordTitle =

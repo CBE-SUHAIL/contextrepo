@@ -50,6 +50,8 @@ type Draft = {
   updatedAt: string;
   publishedPath?: string | null;
   publishedCommitSha?: string | null;
+  canEdit: boolean;
+  canReview: boolean;
 };
 
 type DraftForm = {
@@ -757,11 +759,13 @@ export function ProposalDrafts() {
                   <button
                     type="button"
                     onClick={() =>
-                      draft.status === "draft"
+                      draft.status === "draft" && draft.canEdit
                         ? editDraft(draft)
-                        : (setConflicts([]),
-                          setDraftId(draft.id),
-                          setForm(formFromDraft(draft)))
+                        : draft.status !== "draft"
+                          ? (setConflicts([]),
+                            setDraftId(draft.id),
+                            setForm(formFromDraft(draft)))
+                          : undefined
                     }
                     aria-current={draftId === draft.id ? "true" : undefined}
                     className={`w-full rounded-lg px-3 py-3 text-left transition-colors ${draftId === draft.id ? "bg-violet-50 text-violet-950" : "text-stone-800 hover:bg-stone-50"}`}
@@ -789,40 +793,46 @@ export function ProposalDrafts() {
                       className="flex flex-wrap gap-1.5 px-3 pb-3"
                       aria-label={`Actions for ${draft.title}`}
                     >
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 rounded-md px-2 text-xs"
-                        onClick={() => editDraft(draft)}
-                      >
-                        <Pencil className="mr-1 size-3" />
-                        Edit
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="h-7 rounded-md bg-emerald-700 px-2 text-xs text-white hover:bg-emerald-800"
-                        disabled={reviewBusy !== null}
-                        onClick={() =>
-                          reviewDraft(draft.id, draft.title, "approve")
-                        }
-                      >
-                        <Check className="mr-1 size-3" />
-                        {reviewBusy === draft.id ? "Working…" : "Approve"}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 rounded-md px-2 text-xs text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                        disabled={reviewBusy !== null}
-                        onClick={() =>
-                          reviewDraft(draft.id, draft.title, "reject")
-                        }
-                      >
-                        Reject
-                      </Button>
+                      {draft.canEdit && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 rounded-md px-2 text-xs"
+                          onClick={() => editDraft(draft)}
+                        >
+                          <Pencil className="mr-1 size-3" />
+                          Edit
+                        </Button>
+                      )}
+                      {draft.canReview && (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-7 rounded-md bg-emerald-700 px-2 text-xs text-white hover:bg-emerald-800"
+                            disabled={reviewBusy !== null}
+                            onClick={() =>
+                              reviewDraft(draft.id, draft.title, "approve")
+                            }
+                          >
+                            <Check className="mr-1 size-3" />
+                            {reviewBusy === draft.id ? "Working…" : "Approve"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 rounded-md px-2 text-xs text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                            disabled={reviewBusy !== null}
+                            onClick={() =>
+                              reviewDraft(draft.id, draft.title, "reject")
+                            }
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      )}
                     </div>
                   )}
                 </li>

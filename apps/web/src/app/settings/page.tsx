@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
 import { McpAccess } from "@/components/mcp-access";
+import { TeamAccess } from "@/components/team-access";
 import { LoadingScreen } from "@/components/loading-screen";
 import { SectionPage } from "@/components/workspace-shell";
 import { buttonVariants } from "@/components/ui/button";
@@ -65,9 +66,9 @@ async function SettingsContent() {
   return (
     <SectionPage
       activePage="settings"
-      eyebrow="PERSONAL PROJECT"
-      title="GitHub connection"
-      description="Your connected project stays saved when you sign out. Review or update the repository access here."
+      eyebrow="SHARED PROJECT"
+      title="Project settings"
+      description="Manage the shared team, MCP access, and the GitHub repository used to publish approved context."
       workspace={workspace}
     >
       <div className="space-y-7">
@@ -201,6 +202,8 @@ async function SettingsContent() {
           </div>
         </section>
 
+        <TeamAccess />
+
         <McpAccess />
 
         <section
@@ -212,21 +215,22 @@ async function SettingsContent() {
               Update your project connection
             </p>
             <p className="mt-1 text-xs text-stone-500">
-              You can replace the connected repository. Each user has one
-              project for now.
+              The owner can replace the repository used by this shared project.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link
-              href="/setup/repositories"
-              className={buttonVariants({
-                variant: "outline",
-                className:
-                  "h-9 border-stone-300 bg-white px-3 text-xs text-stone-800 hover:bg-stone-50",
-              })}
-            >
-              Change repository
-            </Link>
+            {project.role === "owner" && (
+              <Link
+                href="/setup/repositories"
+                className={buttonVariants({
+                  variant: "outline",
+                  className:
+                    "h-9 border-stone-300 bg-white px-3 text-xs text-stone-800 hover:bg-stone-50",
+                })}
+              >
+                Change repository
+              </Link>
+            )}
             {project.connectionStatus !== "connected" && (
               <a
                 href={`${API_URL}/auth/github/reconnect`}
