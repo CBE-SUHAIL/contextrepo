@@ -177,24 +177,148 @@ export class ProjectsController {
       avatar_url: string | null;
       role: 'owner' | 'reviewer' | 'contributor';
       created_at: string;
+      repository_access_source: 'contextops' | 'external' | null;
+      repository_access_requested_at: string | null;
     }>(
-      `SELECT u.id,u.github_login,u.avatar_url,pm.role,pm.created_at
+      `SELECT u.id,u.github_login,u.avatar_url,pm.role,pm.created_at,
+              pm.repository_access_source,pm.repository_access_requested_at
        FROM project_members pm JOIN app_users u ON u.id=pm.user_id
        WHERE pm.project_id=$1
        ORDER BY CASE pm.role WHEN 'owner' THEN 0 WHEN 'reviewer' THEN 1 ELSE 2 END,
                 pm.created_at`,
       [project.id],
     );
+    const memberRows = await Promise.all(
+      members.rows.map(async (member) => {
+        let repositoryAccess:
+          'owner' | 'not_granted' | 'pending' | 'active' | 'external' =
+          member.role === 'owner'
+            ? 'owner'
+            : member.repository_access_source
+              ? 'pending'
+              : 'not_granted';
+        if (member.role !== 'owner' && member.repository_access_source) {
+          try {
+            const status = await this.github.repositoryCollaboratorStatus(
+              project.installation_id,
+              project.owner,
+              project.name,
+              member.github_login,
+            );
+            if (status === 'active') {
+              repositoryAccess =
+                member.repository_access_source === 'external'
+                  ? 'external'
+                  : 'active';
+            } else if (member.repository_access_source === 'external') {
+              repositoryAccess = 'not_granted';
+            }
+          } catch {
+            // Keep the stored requested state when GitHub is temporarily unavailable.
+          }
+        }
+        return {
+          id: member.id,
+          login: member.github_login,
+          avatarUrl: member.avatar_url,
+          role: member.role,
+          joinedAt: member.created_at,
+          repositoryAccess,
+          repositoryAccessRequestedAt: member.repository_access_requested_at,
+        };
+      }),
+    );
     return {
       role: project.role,
-      members: members.rows.map((member) => ({
-        id: member.id,
-        login: member.github_login,
-        avatarUrl: member.avatar_url,
-        role: member.role,
-        joinedAt: member.created_at,
-      })),
+      members: memberRows,
     };
+  }
+
+  @Post('team/:memberId/repository-access')
+  async updateRepositoryAccess(
+    @Req() request: Request,
+    @Param('memberId', new ParseUUIDPipe()) memberId: string,
+    @Body() body: { enabled?: boolean },
+    @Headers('origin') origin?: string,
+  ) {
+    this.requireSameOrigin(origin);
+    if (typeof body.enabled !== 'boolean') {
+      throw new BadRequestException('Choose whether repository access is on.');
+    }
+    const user = await this.currentUser(request);
+    const project = await this.memberProject(user.id);
+    if (project.role !== 'owner') {
+      throw new ForbiddenException(
+        'Only the project owner can manage repository access.',
+      );
+    }
+    const memberResult = await this.db.query<{
+      id: string;
+      github_login: string;
+      role: 'owner' | 'reviewer' | 'contributor';
+      repository_access_source: 'contextops' | 'external' | null;
+      github_repository_invitation_id: string | null;
+    }>(
+      `SELECT u.id,u.github_login,pm.role,pm.repository_access_source,
+              pm.github_repository_invitation_id
+       FROM project_members pm JOIN app_users u ON u.id=pm.user_id
+       WHERE pm.project_id=$1 AND pm.user_id=$2 LIMIT 1`,
+      [project.id, memberId],
+    );
+    if (!memberResult.rowCount) {
+      throw new BadRequestException('That person is not in this project.');
+    }
+    const member = memberResult.rows[0];
+    if (member.role === 'owner') {
+      throw new BadRequestException(
+        'The project owner already controls the repository.',
+      );
+    }
+
+    if (body.enabled) {
+      const access = await this.github.addRepositoryCollaborator(
+        project.installation_id,
+        project.owner,
+        project.name,
+        member.github_login,
+      );
+      await this.db.query(
+        `UPDATE project_members
+         SET repository_access_source=$1,
+             repository_access_requested_at=NOW(),
+             github_repository_invitation_id=$2
+         WHERE project_id=$3 AND user_id=$4`,
+        [access.source, access.invitationId, project.id, member.id],
+      );
+      return {
+        repositoryAccess:
+          access.source === 'external' ? 'external' : access.status,
+      };
+    }
+
+    if (member.repository_access_source === 'external') {
+      throw new BadRequestException(
+        'This person already had repository access outside ContextOps. Manage that access directly in GitHub.',
+      );
+    }
+    if (member.repository_access_source === 'contextops') {
+      await this.github.removeRepositoryCollaborator(
+        project.installation_id,
+        project.owner,
+        project.name,
+        member.github_login,
+        member.github_repository_invitation_id,
+      );
+    }
+    await this.db.query(
+      `UPDATE project_members
+       SET repository_access_source=NULL,
+           repository_access_requested_at=NULL,
+           github_repository_invitation_id=NULL
+       WHERE project_id=$1 AND user_id=$2`,
+      [project.id, member.id],
+    );
+    return { repositoryAccess: 'not_granted' };
   }
 
   @Post('invitations')
@@ -322,8 +446,12 @@ export class ProjectsController {
     const result = await this.db.query<{
       id: string;
       role: 'owner' | 'reviewer' | 'contributor';
+      installation_id: string;
+      owner: string;
+      name: string;
     }>(
-      `SELECT cp.id,pm.role FROM project_members pm
+      `SELECT cp.id,pm.role,cp.installation_id,cp.owner,cp.name
+       FROM project_members pm
        JOIN connected_projects cp ON cp.id=pm.project_id
        WHERE pm.user_id=$1 LIMIT 1`,
       [userId],

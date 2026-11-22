@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Copy, UserPlus, Users } from "lucide-react";
+import {
+  Check,
+  Copy,
+  GitBranch,
+  LoaderCircle,
+  UserPlus,
+  Users,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -9,12 +16,16 @@ const API =
   process.env.NEXT_PUBLIC_CONTEXTOPS_API_URL ?? "http://localhost:4000/api";
 
 type Role = "owner" | "reviewer" | "contributor";
+type RepositoryAccess =
+  "owner" | "not_granted" | "pending" | "active" | "external";
 type Member = {
   id: string;
   login: string;
   avatarUrl: string | null;
   role: Role;
   joinedAt: string;
+  repositoryAccess: RepositoryAccess;
+  repositoryAccessRequestedAt: string | null;
 };
 
 export function TeamAccess() {
@@ -24,6 +35,8 @@ export function TeamAccess() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [repositoryBusy, setRepositoryBusy] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API}/projects/team`, {
@@ -85,6 +98,70 @@ export function TeamAccess() {
     window.setTimeout(() => setCopied(false), 1800);
   }
 
+  async function updateRepositoryAccess(member: Member) {
+    const enabled = member.repositoryAccess === "not_granted";
+    const confirmed = window.confirm(
+      enabled
+        ? `Send @${member.login} a GitHub invitation with normal write access to the connected repository? They must accept it in GitHub.`
+        : `Remove the repository access that ContextOps granted to @${member.login}? Their ContextOps membership and MCP access will remain.`,
+    );
+    if (!confirmed) return;
+
+    setRepositoryBusy(member.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(
+        `${API}/projects/team/${member.id}/repository-access`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        },
+      );
+      const body = (await response.json()) as {
+        repositoryAccess?: RepositoryAccess;
+        message?: string;
+      };
+      if (!response.ok || !body.repositoryAccess) {
+        throw new Error(
+          body.message ?? "Could not update GitHub repository access.",
+        );
+      }
+      setMembers((current) =>
+        current.map((item) =>
+          item.id === member.id
+            ? { ...item, repositoryAccess: body.repositoryAccess! }
+            : item,
+        ),
+      );
+      setNotice(
+        body.repositoryAccess === "pending"
+          ? `GitHub invitation sent to @${member.login}. Access starts after they accept it.`
+          : body.repositoryAccess === "external"
+            ? `@${member.login} already had repository access in GitHub.`
+            : `Repository access removed for @${member.login}.`,
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not update GitHub repository access.",
+      );
+    } finally {
+      setRepositoryBusy(null);
+    }
+  }
+
+  function repositoryLabel(access: RepositoryAccess) {
+    if (access === "owner") return "Repository owner";
+    if (access === "pending") return "Invitation pending";
+    if (access === "active") return "Write access";
+    if (access === "external") return "Managed on GitHub";
+    return "No repository access";
+  }
+
   return (
     <section
       aria-labelledby="team-heading"
@@ -105,7 +182,8 @@ export function TeamAccess() {
               </h3>
               <p className="mt-1 max-w-2xl text-xs leading-5 text-stone-600">
                 Contributors can use MCP to read approved context and submit
-                drafts. Owners and reviewers approve what is published.
+                drafts. Owners and reviewers approve what is published. The
+                owner can separately grant normal GitHub write access.
               </p>
             </div>
             {role === "owner" && (
@@ -143,6 +221,12 @@ export function TeamAccess() {
             </p>
           )}
 
+          {notice && (
+            <p role="status" className="mt-3 text-xs text-emerald-700">
+              {notice}
+            </p>
+          )}
+
           <ul className="mt-4 divide-y divide-stone-100 rounded-xl border border-stone-200">
             {members.map((member) => (
               <li
@@ -157,12 +241,65 @@ export function TeamAccess() {
                     @{member.login}
                   </span>
                 </div>
-                <span className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] capitalize text-stone-600">
-                  {member.role}
-                </span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <div className="hidden text-right sm:block">
+                    <p className="flex items-center justify-end gap-1 text-[11px] font-medium text-stone-700">
+                      <GitBranch className="size-3" aria-hidden="true" />
+                      {repositoryLabel(member.repositoryAccess)}
+                    </p>
+                    {member.repositoryAccess === "pending" && (
+                      <p className="mt-0.5 text-[10px] text-stone-500">
+                        Must be accepted in GitHub
+                      </p>
+                    )}
+                  </div>
+                  {role === "owner" && member.role !== "owner" && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-label={`GitHub repository access for @${member.login}`}
+                      aria-checked={member.repositoryAccess !== "not_granted"}
+                      disabled={
+                        repositoryBusy === member.id ||
+                        member.repositoryAccess === "external"
+                      }
+                      onClick={() => updateRepositoryAccess(member)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        member.repositoryAccess !== "not_granted"
+                          ? "bg-violet-700"
+                          : "bg-stone-300"
+                      }`}
+                    >
+                      <span
+                        className={`inline-flex size-4 items-center justify-center rounded-full bg-white shadow-sm transition ${
+                          member.repositoryAccess !== "not_granted"
+                            ? "translate-x-6"
+                            : "translate-x-1"
+                        }`}
+                      >
+                        {repositoryBusy === member.id && (
+                          <LoaderCircle
+                            className="size-3 animate-spin text-stone-500"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </span>
+                    </button>
+                  )}
+                  <span className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] capitalize text-stone-600">
+                    {member.role}
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
+          {role === "owner" && (
+            <p className="mt-2 text-[11px] leading-5 text-stone-500">
+              Repository access is optional and separate from ContextOps. The
+              switch grants write access only—never admin access. Existing
+              GitHub access stays managed in GitHub.
+            </p>
+          )}
         </div>
       </div>
     </section>

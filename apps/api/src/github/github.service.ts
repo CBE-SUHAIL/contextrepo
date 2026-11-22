@@ -379,6 +379,115 @@ export class GithubService {
       : ('repository_access_removed' as const);
   }
 
+  async repositoryCollaboratorStatus(
+    installationId: string,
+    owner: string,
+    repo: string,
+    login: string,
+  ) {
+    const token = await this.installationToken(installationId);
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/collaborators/${encodeURIComponent(login)}/permission`,
+      { headers: this.githubHeaders(token) },
+    );
+    if (response.status === 404) return 'not_active' as const;
+    if (!response.ok) {
+      throw new BadGatewayException(
+        this.repositoryAdministrationError(response.status),
+      );
+    }
+    return 'active' as const;
+  }
+
+  async addRepositoryCollaborator(
+    installationId: string,
+    owner: string,
+    repo: string,
+    login: string,
+  ) {
+    const current = await this.repositoryCollaboratorStatus(
+      installationId,
+      owner,
+      repo,
+      login,
+    );
+    if (current === 'active') {
+      return {
+        source: 'external' as const,
+        status: 'active' as const,
+        invitationId: null,
+      };
+    }
+
+    const token = await this.installationToken(installationId);
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/collaborators/${encodeURIComponent(login)}`,
+      {
+        method: 'PUT',
+        headers: this.githubHeaders(token),
+      },
+    );
+    if (response.status === 204) {
+      return {
+        source: 'contextops' as const,
+        status: 'active' as const,
+        invitationId: null,
+      };
+    }
+    if (response.status !== 201) {
+      const detail = (await response.json().catch(() => null)) as {
+        message?: string;
+      } | null;
+      throw new BadGatewayException(
+        response.status === 403
+          ? this.repositoryAdministrationError(response.status)
+          : detail?.message
+            ? `GitHub could not invite this collaborator: ${detail.message}`
+            : 'GitHub could not invite this collaborator. Try again.',
+      );
+    }
+    const invitation = (await response.json()) as { id?: number };
+    return {
+      source: 'contextops' as const,
+      status: 'pending' as const,
+      invitationId: invitation.id ?? null,
+    };
+  }
+
+  async removeRepositoryCollaborator(
+    installationId: string,
+    owner: string,
+    repo: string,
+    login: string,
+    invitationId?: string | null,
+  ) {
+    const token = await this.installationToken(installationId);
+    const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    if (invitationId) {
+      const invitationResponse = await fetch(
+        `${base}/invitations/${encodeURIComponent(invitationId)}`,
+        { method: 'DELETE', headers: this.githubHeaders(token) },
+      );
+      if (
+        invitationResponse.status !== 204 &&
+        invitationResponse.status !== 404
+      ) {
+        throw new BadGatewayException(
+          this.repositoryAdministrationError(invitationResponse.status),
+        );
+      }
+    }
+    const response = await fetch(
+      `${base}/collaborators/${encodeURIComponent(login)}`,
+      { method: 'DELETE', headers: this.githubHeaders(token) },
+    );
+    if (response.status !== 204 && response.status !== 404) {
+      throw new BadGatewayException(
+        this.repositoryAdministrationError(response.status),
+      );
+    }
+  }
+
   async repositories(userId: string) {
     const installations = await this.db.query<{ installation_id: string }>(
       'SELECT installation_id FROM github_installations WHERE user_id = $1 ORDER BY created_at DESC',
@@ -466,6 +575,12 @@ export class GithubService {
       if (repository) return repository;
       if (body.repositories.length < 100) return null;
     }
+  }
+
+  private repositoryAdministrationError(status: number) {
+    return status === 403
+      ? 'The ContextOps GitHub App needs Repository administration: Read and write permission. Approve the updated app permission in GitHub and try again.'
+      : 'GitHub could not update repository collaborator access. Try again.';
   }
 
   async contextFolderExists(token: string, owner: string, repo: string) {

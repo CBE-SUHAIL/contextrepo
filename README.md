@@ -43,7 +43,9 @@ The dashboard uses port 3000; the API uses port 4000.
 
 ## Supabase database connection
 
-The API reads its local environment from `apps/api/.env`. Copy `apps/api/.env.example` to `apps/api/.env`, then paste the Supabase PostgreSQL connection string after `DATABASE_URL=`. Keep `.env` private; it is ignored by Git. Apply the numbered files in `apps/api/database/migrations/` in order. Migration `008_shared_project_membership.sql` adds project invitations, member roles, and shared proposal review.
+The API reads its local environment from `apps/api/.env`. Copy `apps/api/.env.example` to `apps/api/.env`, then paste the Supabase PostgreSQL connection string after `DATABASE_URL=`. Keep `.env` private; it is ignored by Git. Apply the numbered files in `apps/api/database/migrations/` in order. Migration `008_shared_project_membership.sql` adds project invitations, member roles, and shared proposal review. Migration `009_repository_member_access.sql` records optional per-member GitHub repository access.
+
+Owners can grant a project member normal GitHub write access from **Settings → Project team**. This sends a GitHub collaborator invitation; the member must accept it in GitHub. The GitHub App therefore needs **Repository administration: Read and write** in addition to its existing content permission. ContextOps tracks access it granted and will not remove access that already existed outside ContextOps.
 
 ## GitHub App setup for onboarding
 
