@@ -396,7 +396,18 @@ export class GithubService {
         this.repositoryAdministrationError(response.status),
       );
     }
-    return 'active' as const;
+    const collaborator = (await response.json()) as {
+      permission?: string;
+      role_name?: string;
+      user?: { permissions?: { push?: boolean; admin?: boolean } };
+    };
+    const canWrite =
+      collaborator.user?.permissions?.push === true ||
+      collaborator.user?.permissions?.admin === true ||
+      ['admin', 'maintain', 'push', 'write'].includes(
+        collaborator.role_name ?? collaborator.permission ?? '',
+      );
+    return canWrite ? ('active' as const) : ('not_active' as const);
   }
 
   async addRepositoryCollaborator(
@@ -424,7 +435,11 @@ export class GithubService {
       `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/collaborators/${encodeURIComponent(login)}`,
       {
         method: 'PUT',
-        headers: this.githubHeaders(token),
+        headers: {
+          ...this.githubHeaders(token),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ permission: 'push' }),
       },
     );
     if (response.status === 204) {
